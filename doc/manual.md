@@ -64,7 +64,8 @@ $ QUIT;
 and the table `ci` in database `ci`:
 
 ```
-mysql -u root ci < create_table.mysql
+mysql -u root ci < initialize.mysql
+mysql -u root ci < initialize_test.mysql
 ```
 
 ## Setup `ngrok`

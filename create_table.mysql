@@ -1,9 +1,0 @@
-# Run mysql -u root ci < create_table.mysql, where root is the
-# username and ci is the database name.
-
-CREATE TABLE ci (
-  id VARCHAR(64) NOT NULL,
-  status VARCHAR(7) NOT NULL,
-  detail LONGTEXT,
-  PRIMARY KEY (id)
-)

@@ -8,21 +8,26 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/topicai/candy"
 )
 
-// PushEvent is the JSON schema when Github calls the Webhook to notify about a push operation.
+// PushEvent is the JSON schema when Github calls the Webhook to
+// notify about a push operation.  // For the definition, c.f.
+// https://developer.github.com/v3/activity/events/types/#pushevent
 type PushEvent struct {
-	After      string `json:"after,omitempty"`
-	Repository struct {
-		URL string `json:"url,omitempty"`
-	}
+	After string `json:"after,omitempty"`
+	Repository
+}
+
+// Repository is the JSON schema used in Github PushEvent.
+type Repository struct {
+	URL string `json:"url,omitempty"`
 }
 
 func main() {
@@ -36,28 +41,43 @@ func main() {
 	candy.Must(e)
 	defer func() { candy.Must(db.Close()) }()
 
-	query, e := db.Prepare("SELECT status, detail FROM ci WHERE id = ?")
-	candy.Must(e)
-	defer func() { candy.Must(query.Close()) }()
+	retrieve := makeRetriever(db)
+	insert := makeInserter(db)
 
 	http.HandleFunc("/ci", // NOTE: /ci URL for Github Webhook.
 		makeSafeHandler(func(w http.ResponseWriter, r *http.Request) {
 			event := r.Header["X-Github-Event"]
 			if r.Method == "POST" && len(event) > 0 && event[0] == "push" {
-				// For PushEvent: https://developer.github.com/v3/activity/events/types/#pushevent
 				var push PushEvent
 				candy.Must(json.NewDecoder(r.Body).Decode(&push))
-				ci(db, &push)
+				ci(&push, insert)
 			}
 		}))
 	http.HandleFunc("/status", // NOTE: /status/{SHA} for retrieving status/details
 		makeSafeHandler(func(w http.ResponseWriter, r *http.Request) {
 			id := path.Base(r.URL.Path)
-			var status, detail string
-			candy.Must(query.QueryRow(id).Scan(&status, &detail))
+			status, detail := retrieve(id)
 			fmt.Fprintf(w, "%s : %s\n\n%s", id, status, detail)
 		}))
 	candy.Must(http.ListenAndServe(*addr, nil))
+}
+
+func makeRetriever(db *sql.DB) func(id string) (status, detail string) {
+	query, e := db.Prepare("SELECT status, detail FROM ci WHERE id = ?")
+	candy.Must(e)
+	return func(id string) (status, detail string) {
+		candy.Must(query.QueryRow(id).Scan(&status, &detail))
+		return
+	}
+}
+
+func makeInserter(db *sql.DB) func(id, status, detail string) {
+	stmtIn, e := db.Prepare(`INSERT INTO ci (id, status, detail) VALUES(?, ?, ?) ON DUPLICATE KEY UPDATE status=?, detail=?`)
+	candy.Must(e)
+	return func(id, status, detail string) {
+		_, e := stmtIn.Exec(id, status, detail, status, detail)
+		candy.Must(e)
+	}
 }
 
 func makeSafeHandler(fn http.HandlerFunc) http.HandlerFunc {
@@ -71,40 +91,30 @@ func makeSafeHandler(fn http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func ci(db *sql.DB, push *PushEvent) {
-	stmtIn, e := db.Prepare("INSERT ci SET id=?, status=?, detail=?")
-	candy.Must(e)
-	defer func() {
-		candy.Must(stmtIn.Close())
-	}()
-
+func ci(push *PushEvent, insert func(id, status, detail string)) {
 	detail := ""
 	defer func() {
 		if e := recover(); e != nil {
-			_, _ = stmtIn.Exec(push.After, "failed", fmt.Sprintf("%s\n%v", e, detail))
+			insert(push.After, "failed", fmt.Sprintf("%s\n%v", e, detail))
 		}
 	}()
 
 	ws, e := ioutil.TempDir("", "")
 	candy.Must(e)
-
 	defer func() {
-		candy.Must(os.RemoveAll(ws))
+		// candy.Must(os.RemoveAll(ws))
 	}()
 
-	repoURL, e := url.Parse(push.Repository.URL)
-	candy.Must(e)
+	fmt.Println("Use", ws) // debug
 
-	pkg := path.Join(repoURL.Host, repoURL.Path)
-	detail += cmd(nil, "go", "get", "-u", pkg) // NOTE：must be open source Go repo.
+	candy.Must(os.Chdir(ws))
+	cmd(nil, "git", "clone", push.Repository.URL, "repo")
+	candy.Must(os.Chdir(path.Join(ws, "repo")))
 
-	repo := path.Base(repoURL.Path)
-	candy.Must(os.Chdir(path.Join(ws, repo)))
+	cmd(nil, "git", "checkout", push.After)
+	detail += cmd(nil, "bash", "-c", "./.ci.bash") // NOTE: entrypoinst must be named .ci.bash.
 
-	detail += cmd(nil, "git", "checkout", push.After)
-	detail += cmd(nil, "bash", "-c", "./ci.bash") // NOTE: entrypoinst must be named .ci.bash.
-
-	_, _ = stmtIn.Exec(push.After, "success", fmt.Sprintf("%s\n%v", e, detail))
+	insert(push.After, "success", detail)
 }
 
 func cmd(env map[string]string, name string, arg ...string) string {
