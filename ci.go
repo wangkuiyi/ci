@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -107,11 +108,15 @@ func ci(push *PushEvent, insert func(id, status, detail string)) {
 
 	fmt.Println("Use", ws) // debug
 
-	candy.Must(os.Chdir(ws))
-	cmd(nil, "git", "clone", push.Repository.URL, "repo")
-	candy.Must(os.Chdir(path.Join(ws, "repo")))
+	repoURL, e := url.Parse(push.Repository.URL)
+	candy.Must(e)
+	repo := path.Base(repoURL.Path)
 
-	cmd(nil, "git", "checkout", push.After)
+	candy.Must(os.Chdir(ws))
+	cmd(nil, "git", "clone", push.Repository.URL)
+	candy.Must(os.Chdir(path.Join(ws, repo)))
+
+	cmd(nil, "git", "checkout", "-b", "ci", push.After)
 	detail += cmd(nil, "bash", "-c", "./.ci.bash") // NOTE: entrypoinst must be named .ci.bash.
 
 	insert(push.After, "success", detail)

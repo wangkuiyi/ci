@@ -36,7 +36,7 @@ func TestCI(t *testing.T) {
 	insert := makeInserter(db)
 
 	ci(&PushEvent{
-		After: "d07ac266d969affd4b6f016c1cbbe999f193a567",
+		After: "b9cde3f72925975ab7147fbed4f2a86ab1572b17",
 		Repository: Repository{
 			URL: "https://github.com/wangkuiyi/ci_test/",
 		}}, insert)
