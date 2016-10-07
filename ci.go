@@ -18,9 +18,8 @@ import (
 	"github.com/topicai/candy"
 )
 
-// PushEvent is the JSON schema when Github calls the Webhook to
-// notify about a push operation.  // For the definition, c.f.
-// https://developer.github.com/v3/activity/events/types/#pushevent
+// PushEvent represents the JSON payload from Github push
+// Webhook. https://developer.github.com/v3/activity/events/types/#pushevent
 type PushEvent struct {
 	After string `json:"after,omitempty"`
 	Repository
@@ -45,7 +44,7 @@ func main() {
 	retrieve := makeRetriever(db)
 	insert := makeInserter(db)
 
-	http.HandleFunc("/ci", // NOTE: /ci URL for Github Webhook.
+	http.HandleFunc("/ci/", // NOTE: /ci URL for Github Webhook.
 		makeSafeHandler(func(w http.ResponseWriter, r *http.Request) {
 			event := r.Header["X-Github-Event"]
 			if r.Method == "POST" && len(event) > 0 && event[0] == "push" {
@@ -54,7 +53,7 @@ func main() {
 				ci(&push, insert)
 			}
 		}))
-	http.HandleFunc("/status", // NOTE: /status/{SHA} for retrieving status/details
+	http.HandleFunc("/status/", // NOTE: /status/{SHA} for retrieving status/details
 		makeSafeHandler(func(w http.ResponseWriter, r *http.Request) {
 			id := path.Base(r.URL.Path)
 			status, detail := retrieve(id)
@@ -125,10 +124,7 @@ func ci(push *PushEvent, insert func(id, status, detail string)) {
 func cmd(env map[string]string, name string, arg ...string) string {
 	cmd := exec.Command(name, arg...)
 
-	// Inherit environ from the parent process. Note that, instead
-	// of appending env to cmd.Env, we rewrite the value of an
-	// environment varaible in cmd.Env if it is in env.  This
-	// prevents from cases like two GOPATH variables in cmd.Env.
+	// Rewrite the value of existing keys.
 	for _, en := range os.Environ() {
 		kv := strings.Split(en, "=")
 		if v := env[kv[0]]; v != "" {
