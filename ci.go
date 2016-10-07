@@ -30,6 +30,7 @@ func main() {
 	dbuser := flag.String("user", "root", "MySQL username")
 	dbpasswd := flag.String("passwd", "", "MySQL password")
 	database := flag.String("database", "", "MySQL database")
+	flag.Parse()
 
 	db, e := sql.Open("mysql", fmt.Sprintf("%s:%s@/%s", *dbuser, *dbpasswd, *database))
 	candy.Must(e)
@@ -41,7 +42,8 @@ func main() {
 
 	http.HandleFunc("/ci", // NOTE: /ci URL for Github Webhook.
 		makeSafeHandler(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "POST" && r.Header["X-Github-Event"] != nil && r.Header["X-Github-Event"][0] == "push" {
+			event := r.Header["X-Github-Event"]
+			if r.Method == "POST" && len(event) > 0 && event[0] == "push" {
 				// For PushEvent: https://developer.github.com/v3/activity/events/types/#pushevent
 				var push PushEvent
 				candy.Must(json.NewDecoder(r.Body).Decode(&push))
