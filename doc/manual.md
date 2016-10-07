@@ -67,8 +67,6 @@ and the table `ci` in database `ci`:
 mysql -u root ci < create_table.mysql
 ```
 
-## Setup Database
-
 ## Setup `ngrok`
 
 We need ngrok, so that we can host CI on home/office computer that
@@ -80,3 +78,21 @@ We can use Homebrew to install ngrok on Mac OS X:
 ```
 brew cask install ngrok
 ```
+
+Run ngrok on our computer and expose local :8080 port to ngrok.com, so
+that our CI process, which listens on :8080, could have a publicly
+accessible URL, which can be registred to github.com as a Webhook:
+
+```
+ngrok http 8080
+```
+
+This will bring up a fullscreen UI like the following:
+
+<img src="ngrok.png" width=500 />
+
+Please be aware of the URLs shown in the figure -- once we run CI
+locally and make it listening on 8080, we will be able to access CI
+through any of those URLs.  Also, once after we run CI on port 8080,
+we can access locally running ngrok through
+http://localhost:4040/inspect/http.
