@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -102,10 +101,8 @@ func ci(push *PushEvent, insert func(id, status, detail string)) {
 	ws, e := ioutil.TempDir("", "")
 	candy.Must(e)
 	defer func() {
-		// candy.Must(os.RemoveAll(ws))
+		candy.Must(os.RemoveAll(ws))
 	}()
-
-	fmt.Println("Use", ws) // debug
 
 	repoURL, e := url.Parse(push.Repository.URL)
 	candy.Must(e)
@@ -140,7 +137,7 @@ func cmd(env map[string]string, name string, arg ...string) string {
 
 	b, e := cmd.CombinedOutput()
 	if e != nil {
-		log.Panicf("%s %s\nFailed: %v\n%s", name, strings.Join(arg, " "), e, string(b))
+		panic(fmt.Sprintf("%s %s\nFailed: %v\n%s", name, strings.Join(arg, " "), e, string(b)))
 	}
 	return string(b)
 }

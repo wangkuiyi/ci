@@ -25,7 +25,7 @@ Then we need to initialize MySQL -- creating a root account in a
 specified data directory:
 
 ```
-mysqld --initialize-insecure --datadir=/Users/yiwang/work/mysql_data
+mysqld --initialize-insecure --datadir=$HOME/work/mysql_data
 ```
 
 For development purpose, the root user can have empty password, so we
@@ -54,14 +54,7 @@ password, we need to let `mysql` prompt us for the password:
 mysql -u root -p
 ```
 
-Then we can create the database under the `mysql` prompt:
-
-```
-$ CREATE DATABASE ci;
-$ QUIT;
-```
-
-and the table `ci` in database `ci`:
+Then we can create the databases and tables under the `mysql` prompt:
 
 ```
 mysql -u root ci < initialize.mysql
@@ -107,7 +100,7 @@ We need ngrok, so that we can host CI on home/office computer that
 don't have public&static Internet IPs, while allowing it to have a
 publicly accessible domain&URL.
 
-We can use Homebrew to install ngrok on Mac OS X:
+We can use Homebrew to install ngrok 2.x on Mac OS X:
 
 ```
 brew cask install ngrok
