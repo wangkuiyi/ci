@@ -1,8 +1,8 @@
-package ci_server
+package main
 
 import "log"
 
-func Main() {
+func main() {
 	opts := ParseArgs()
 	github := newGithubAPI(opts)
 	db, err := newCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)

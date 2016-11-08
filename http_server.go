@@ -1,5 +1,5 @@
 // for Github Webhook, and CI website.
-package ci_server
+package main
 
 import (
 	"github.com/bmatsuo/go-jsontree"

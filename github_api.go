@@ -1,5 +1,5 @@
 //  handle the github API
-package ci_server
+package main
 
 import (
 	"fmt"

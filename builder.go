@@ -1,5 +1,5 @@
 // The utilities for running ci scripts.
-package ci_server
+package main
 
 import (
 	"bufio"

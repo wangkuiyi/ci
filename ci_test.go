@@ -1,4 +1,4 @@
-package ci_server
+package main
 
 import (
 	"github.com/stretchr/testify/assert"

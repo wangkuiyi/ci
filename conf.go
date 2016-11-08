@@ -1,5 +1,5 @@
 // The config parsers. Parse the command line option --config, and read the configuration file.
-package ci_server
+package main
 
 import (
 	"flag"

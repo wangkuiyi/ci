@@ -1,5 +1,5 @@
 // Database layer.
-package ci_server
+package main
 
 import (
 	"database/sql"
