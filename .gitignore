@@ -9,3 +9,4 @@ src/ci/ci_server/run
 src/golang.org
 src/gopkg.in
 configs/build
+ci

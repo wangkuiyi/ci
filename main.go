@@ -13,7 +13,7 @@ func main() {
 	builder.Start()
 	defer builder.Close()
 
-	serv := newHTTPServer(&opts.HTTP, db)
+	serv := newHTTPServer(opts, db)
 	go func() {
 		checkNoErr(serv.ListenAndServe())
 	}()

@@ -16,8 +16,10 @@ type HTTPOption struct {
 	CIUri  string // the uri of Github WebHook
 	Secret string // Github WebHook secret
 
-	StatusURI string // the status uri for each build
-	Hostname  string // the http host.
+	StatusURI   string // the status uri for each build
+	Hostname    string // the http host.
+	TemplateDir string // the directory for html template
+	StaticDir   string // the directory for static file
 }
 
 // GithubAPIOption for github API option
@@ -71,11 +73,12 @@ type Options struct {
 func newOptions() *Options {
 	return &Options{
 		HTTP: HTTPOption{
-			Addr:      ":8000",
-			CIUri:     "/ci/",
-			Secret:    "",
-			StatusURI: "/status/",
-			Hostname:  "",
+			Addr:        ":8000",
+			CIUri:       "/ci/",
+			Secret:      "",
+			StatusURI:   "/status/",
+			Hostname:    "",
+			TemplateDir: "./templates/",
 		},
 		Database: DatabaseOption{
 			User:         "DEBUG",
