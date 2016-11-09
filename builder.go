@@ -14,8 +14,6 @@ import (
 	"text/template"
 )
 
-const exitFlag = -1
-
 // Builder will start multiple go routine to executing ci scripts for each builds.
 // For each build, builder will generate an shell script for execution. Then just execute this shell script.
 type Builder struct {
@@ -72,9 +70,10 @@ func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) 
 func (b *Builder) builderMain(id int) {
 	path := fmt.Sprintf("%s%c%d", b.opt.Dir, os.PathSeparator, id)
 	var bid int64
+	var ok bool
 	for {
-		bid = <-b.jobChan
-		if bid == exitFlag {
+		bid, ok = <-b.jobChan
+		if !ok {
 			break
 		} else {
 			b.build(bid, path)
@@ -162,9 +161,7 @@ func (b *Builder) Start() {
 
 // Close will stop all go routines
 func (b *Builder) Close() {
-	for i := 0; i < b.opt.Concurrent; i++ {
-		b.jobChan <- exitFlag
-	}
+	close(b.jobChan)
 	b.exitGroup.Wait()
 }
 
