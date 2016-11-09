@@ -14,7 +14,8 @@ CREATE TYPE OutputChannel AS ENUM (
 CREATE TABLE PushEvents (
     head VARCHAR(64) PRIMARY KEY NOT NULL,
     ref TEXT NOT NULL,
-    clone_url TEXT NOT NULL
+    clone_url TEXT NOT NULL,
+    createTime TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
 );
 
 CREATE TABLE Builds (

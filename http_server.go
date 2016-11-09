@@ -48,6 +48,7 @@ type HTTPServer struct {
 	db *CIDB // Database
 
 	renderer *Renderer
+	github   *GithubAPI
 }
 
 // Renderer is a http middleware for render template
@@ -89,7 +90,7 @@ func (renderer *Renderer) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 	next(rw, r)
 }
 
-func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[string]string) {
+func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[string]interface{}) {
 	insertIfNotExist := func(key string, val string) {
 		_, ok := data[key]
 		if !ok {
@@ -109,7 +110,7 @@ func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[s
 	}
 }
 
-func newHTTPServer(opts *Options, db *CIDB) *HTTPServer {
+func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI) *HTTPServer {
 	serv := &HTTPServer{
 		EventQueue: nil,
 		server:     github_hook.NewServer(),
@@ -118,6 +119,7 @@ func newHTTPServer(opts *Options, db *CIDB) *HTTPServer {
 		n:          negroni.New(),
 		db:         db,
 		renderer:   newRenderer(opts),
+		github:     github,
 	}
 	serv.EventQueue = serv.server.Events
 	serv.server.Path = opts.HTTP.CIUri
@@ -156,12 +158,44 @@ func onPushEvent(request *jsontree.JsonTree) (ev interface{}, err error) {
 	return
 }
 
-func (httpServ *HTTPServer) render(res http.ResponseWriter, req *http.Request, name string, data map[string]string) {
+func (httpServ *HTTPServer) render(res http.ResponseWriter, req *http.Request, name string, data map[string]interface{}) {
 	context.Get(req, "renderer").(*Renderer).render(res, name, data)
 }
 
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (httpServ *HTTPServer) homeHandler(res http.ResponseWriter, req *http.Request) {
-	httpServ.render(res, req, "index", make(map[string]string))
+	type BranchBuilds struct {
+		Name     *string
+		Versions []VersionWithStatus
+	}
+	// view objects
+	var vo struct {
+		Branches []BranchBuilds
+	}
+
+	branches, err := httpServ.github.ListRemoteBranches()
+	checkNoErr(err)
+
+	vo.Branches = make([]BranchBuilds, len(branches))
+	for i, b := range branches {
+		vo.Branches[i].Name = b
+		builds, err := httpServ.db.ListRecordPushByBranchName(*b, 10, 0)
+		vo.Branches[i].Versions = builds
+		if err != nil {
+			checkNoErr(err)
+		}
+	}
+
+	dat := make(map[string]interface{})
+	dat["Vo"] = vo
+
+	httpServ.render(res, req, "index", dat)
 }
 
 //func (httpServ* HttpServer) statusHandler(res http.ResponseWriter, req *http.Request) {

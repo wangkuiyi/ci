@@ -49,3 +49,16 @@ func (gh *GithubAPI) CreateStatus(sha string, status string) error {
 	})
 	return err
 }
+
+// ListRemoteBranches List all remote branches
+func (gh *GithubAPI) ListRemoteBranches() ([]*string, error) {
+	branches, _, err := gh.cli.Repositories.ListBranches(gh.opts.Owner, gh.opts.Name, nil)
+	if err != nil {
+		return nil, err
+	}
+	retv := make([]*string, len(branches))
+	for i, b := range branches {
+		retv[i] = b.Name
+	}
+	return retv, nil
+}

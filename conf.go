@@ -100,7 +100,7 @@ set -e
 `,
 			PushEventCloneTpl: `
 set -x
-git clone --branch={{.BranchName}} --depth=50 {{.CloneUrl}} repo
+git clone --branch={{.BranchName}} --depth=50 {{.CloneURL}} repo
 cd repo
 git checkout -qf {{.Head}}
 `,

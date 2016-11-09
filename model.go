@@ -186,19 +186,88 @@ func (db *CIDB) GetBuildOutput(buildID int64) (output []CommandLineOutput, err e
 	return
 }
 
+// BuildStatus in database
+type BuildStatus int
+
 const (
 	// BuildRunning Build Status in Database, running.
-	BuildRunning = "running"
+	BuildRunning BuildStatus = iota
 	// BuildSuccess Build Status in Database, success.
-	BuildSuccess = "success"
+	BuildSuccess
 	// BuildError Build Status in Database, error. Error means some build system internal error happend and the ci script not run.
-	BuildError = "error"
+	BuildError
 	// BuildFailed Build Status in Database, failed.
-	BuildFailed = "failed"
+	BuildFailed
 )
 
+func (status BuildStatus) String() string {
+	switch status {
+	case 0:
+		return "running"
+	case 1:
+		return "success"
+	case 2:
+		return "error"
+	case 3:
+		return "failed"
+	default:
+		return ""
+	}
+}
+
+func str2BuildStatus(str string) BuildStatus {
+	switch str {
+	case "running":
+		return 0
+	case "success":
+		return 1
+	case "error":
+		return 2
+	case "failed":
+		return 3
+	default:
+		return -1
+	}
+}
+
 // UpdateBuildStatus update build status in database.
-func (db *CIDB) UpdateBuildStatus(buildID int64, status string) (err error) {
-	_, err = db.DB.Exec("UPDATE Builds SET status = $1 WHERE id = $2", status, buildID)
+func (db *CIDB) UpdateBuildStatus(buildID int64, status BuildStatus) (err error) {
+	_, err = db.DB.Exec("UPDATE Builds SET status = $1 WHERE id = $2", status.String(), buildID)
+	return
+}
+
+// VersionWithStatus git commit with build status
+type VersionWithStatus struct {
+	Sha    string
+	Status BuildStatus
+}
+
+// ListRecordPushByBranchName list all push event in database, by branch name.
+func (db *CIDB) ListRecordPushByBranchName(branchName string, limit, offset int) (builds []VersionWithStatus, err error) {
+	ref := fmt.Sprintf("refs/heads/%s", branchName)
+	stmt := `SELECT tmp.ph, tmp.bs
+FROM (
+SELECT ROW_NUMBER() OVER (PARTITION BY pb.push_head ORDER BY b.id) as r, b.status as bs, pb.push_head as ph FROM PushBuilds AS pb INNER JOIN Builds AS b ON b.id = pb.build_id WHERE 
+	pb.push_head in (SELECT pe.head FROM PushEvents AS pe WHERE pe.ref = $1 ORDER BY pe.createTime DESC)
+	) as tmp 
+WHERE tmp.r <= 1
+LIMIT $2
+OFFSET $3
+`
+	rows, err := db.DB.Query(stmt, ref, limit, offset)
+	if err != nil {
+		return
+	}
+	var sha string
+	var status string
+	for rows.Next() {
+		err = rows.Scan(&sha, &status)
+		if err != nil {
+			return
+		}
+		bs := VersionWithStatus{sha, str2BuildStatus(status)}
+		builds = append(builds, bs)
+	}
+
 	return
 }
