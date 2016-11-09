@@ -2,9 +2,10 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/bmatsuo/go-jsontree"
 	"github.com/reyoung/github_hook"
-	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
@@ -14,28 +15,28 @@ import (
 type PushEvent struct {
 	Ref      string
 	Head     string
-	CloneUrl string
+	CloneURL string
 }
 
-// Get branch name from PushEvent. Used for template
+// BranchName Get branch name from PushEvent. Used for template
 func (ev *PushEvent) BranchName() string {
 	return ev.Ref[11:]
 }
 
-// Http Server
-type HttpServer struct {
-	EventQueue chan interface{}	// Channel for git hub web hook event
-	server     *github_hook.Server  // Github Webhook handler.
-	addr       string  // http addr.
+// HTTPServer for webhook, website.
+type HTTPServer struct {
+	EventQueue chan interface{}    // Channel for git hub web hook event
+	server     *github_hook.Server // Github Webhook handler.
+	addr       string              // http addr.
 
-	router *mux.Router  // Router
-	n *negroni.Negroni // A http middleware framework
+	router *mux.Router      // Router
+	n      *negroni.Negroni // A http middleware framework
 
-	db *CIDB  // Database
+	db *CIDB // Database
 }
 
-func newHttpServer(opts *HttpOption, db *CIDB) *HttpServer {
-	serv := &HttpServer{
+func newHTTPServer(opts *HTTPOption, db *CIDB) *HTTPServer {
+	serv := &HTTPServer{
 		EventQueue: nil,
 		server:     github_hook.NewServer(),
 		addr:       opts.Addr,
@@ -48,7 +49,7 @@ func newHttpServer(opts *HttpOption, db *CIDB) *HttpServer {
 	serv.server.Secret = opts.Secret
 	serv.router.HandleFunc(serv.server.Path, serv.server.ServeHTTP)
 	serv.server.EventHandler = make(map[string]func(*jsontree.JsonTree) (interface{}, error))
-	serv.server.EventHandler["push"] = on_push_event
+	serv.server.EventHandler["push"] = onPushEvent
 
 	serv.n.Use(negroni.NewRecovery())
 	serv.n.Use(negroni.NewLogger())
@@ -59,26 +60,20 @@ func newHttpServer(opts *HttpOption, db *CIDB) *HttpServer {
 	return serv
 }
 
-func (httpServ *HttpServer) ListenAndServe() error {
+// ListenAndServe by using configuration.
+func (httpServ *HTTPServer) ListenAndServe() error {
 	return http.ListenAndServe(httpServ.addr, httpServ.n)
 }
 
-func (httpServ *HttpServer) GoListenAndServe() {
-	go func() {
-		CheckNoErr(httpServ.ListenAndServe())
-	}()
-}
-
-// PushEvent represents the JSON payload from Github push
-// Webhook. https://developer.github.com/v3/activity/events/types/#pushevent
-func on_push_event(request *jsontree.JsonTree) (ev interface{}, err error) {
+// onPushEvent Webhook. https://developer.github.com/v3/activity/events/types/#pushevent
+func onPushEvent(request *jsontree.JsonTree) (ev interface{}, err error) {
 	event := &PushEvent{}
 	ev = event
 	event.Ref, err = request.Get("ref").String()
 	if err != nil {
 		return
 	}
-	event.CloneUrl, err = request.Get("repository").Get("clone_url").String()
+	event.CloneURL, err = request.Get("repository").Get("clone_url").String()
 	if err != nil {
 		return
 	}
@@ -86,7 +81,7 @@ func on_push_event(request *jsontree.JsonTree) (ev interface{}, err error) {
 	return
 }
 
-func (httpServ *HttpServer) homeHandler(http.ResponseWriter,
+func (httpServ *HTTPServer) homeHandler(http.ResponseWriter,
 	*http.Request) {
 }
 

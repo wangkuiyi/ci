@@ -1,14 +1,15 @@
 package main
 
 import (
-	"github.com/stretchr/testify/assert"
 	"log"
 	"os"
 	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-var DB *CIDB = nil
+var DB *CIDB
 var jobChan chan int64
 var builder *Builder
 
@@ -36,19 +37,19 @@ fi
 
 func TestAddPushEvent(t *testing.T) {
 	ev := PushEvent{
-		CloneUrl: "https://github.com/reyoung/ci.git",
+		CloneURL: "https://github.com/reyoung/ci.git",
 		Ref:      "refs/heads/refine_ci_server",
 		Head:     "929924c96f51e2614efcba584fe9cf3a8cb4ec04",
 	}
 	bid, err := DB.AddPushEvent(&ev)
 	assert.NoError(t, err)
-	getEv, err := DB.GetPushEventByBuildId(bid)
+	getEv, err := DB.GetPushEventByBuildID(bid)
 	assert.NoError(t, err)
 	assert.Equal(t, ev, *getEv)
 	cmd, err := builder.generatePushEventBuildCommand(&ev)
 	assert.NoError(t, err)
 	assert.Equal(t, string(cmd[:]), BuildCommand)
-	chans, err := builder.ExecCommand(".", cmd)
+	chans, err := builder.execCommand(".", cmd)
 	assert.NoError(t, err)
 	execCommand := func() {
 		exit := false
@@ -68,7 +69,7 @@ func TestAddPushEvent(t *testing.T) {
 	execCommand()
 	cmd, err = builder.generateCleanCommand()
 	assert.NoError(t, err)
-	chans, err = builder.ExecCommand(".", cmd)
+	chans, err = builder.execCommand(".", cmd)
 	assert.NoError(t, err)
 	execCommand()
 
@@ -87,10 +88,10 @@ func TestMain(m *testing.M) {
 	opts.Build.Env["os"] = "osx"
 	var err error
 	DB, err = newCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)
-	CheckNoErr(err)
+	checkNoErr(err)
 	defer DB.Close()
 	jobChan = make(chan int64)
 	builder, err = newBuilder(jobChan, opts, DB, nil)
-	CheckNoErr(err)
+	checkNoErr(err)
 	os.Exit(m.Run())
 }

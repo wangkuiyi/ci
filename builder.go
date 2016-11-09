@@ -14,9 +14,9 @@ import (
 	"text/template"
 )
 
-const ExitFlag = -1
+const exitFlag = -1
 
-// Builder. Start multiple go routine to executing ci scripts for each builds.
+// Builder will start multiple go routine to executing ci scripts for each builds.
 // For each build, builder will generate an shell script for execution. Then just execute this shell script.
 type Builder struct {
 	jobChan chan int64 // channel for build id
@@ -74,8 +74,8 @@ func (b *Builder) builderMain(id int) {
 	var bid int64
 	for {
 		bid = <-b.jobChan
-		if bid == ExitFlag {
-			return
+		if bid == exitFlag {
+			break
 		} else {
 			b.build(bid, path)
 		}
@@ -85,27 +85,27 @@ func (b *Builder) builderMain(id int) {
 
 // Execute ci scripts for Build with id = bid, path as directory
 func (b *Builder) build(bid int64, path string) {
-	ev, err := b.db.GetPushEventByBuildId(bid)
-	CheckNoErr(err)
-	err = b.github.CreateStatus(ev.Head, GITHUB_PENDING)
-	CheckNoErr(err)
-	err = b.db.UpdateBuildStatus(bid, BUILD_RUNNING)
-	CheckNoErr(err)
+	ev, err := b.db.GetPushEventByBuildID(bid)
+	checkNoErr(err)
+	err = b.github.CreateStatus(ev.Head, GithubPending)
+	checkNoErr(err)
+	err = b.db.UpdateBuildStatus(bid, BuildRunning)
+	checkNoErr(err)
 
 	// After running, all panic should be recovered.
 	defer func() {
 		if r := recover(); r != nil {
 			// CI System Error, set github status & database to error
-			err := b.github.CreateStatus(ev.Head, GITHUB_ERROR)
-			CheckNoErr(err)
-			err = b.db.UpdateBuildStatus(bid, BUILD_ERROR)
-			CheckNoErr(err)
+			err := b.github.CreateStatus(ev.Head, GithubError)
+			checkNoErr(err)
+			err = b.db.UpdateBuildStatus(bid, BuildError)
+			checkNoErr(err)
 		}
 	}()
 	cmd, err := b.generatePushEventBuildCommand(ev)
-	CheckNoErr(err)
-	channels, err := b.ExecCommand(path, cmd)
-	CheckNoErr(err)
+	checkNoErr(err)
+	channels, err := b.execCommand(path, cmd)
+	checkNoErr(err)
 	execCommand := func() bool {
 		exit := false
 		ok := false
@@ -134,20 +134,20 @@ func (b *Builder) build(bid int64, path string) {
 	ok := execCommand()
 
 	if ok {
-		err = b.db.UpdateBuildStatus(bid, BUILD_SUCCESS)
-		CheckNoErr(err)
-		err = b.github.CreateStatus(ev.Head, GITHUB_SUCCESS)
-		CheckNoErr(err)
+		err = b.db.UpdateBuildStatus(bid, BuildSuccess)
+		checkNoErr(err)
+		err = b.github.CreateStatus(ev.Head, GithubSuccess)
+		checkNoErr(err)
 	} else {
-		err = b.db.UpdateBuildStatus(bid, BUILD_FAILED)
-		CheckNoErr(err)
-		err = b.github.CreateStatus(ev.Head, GITHUB_FAILURE)
-		CheckNoErr(err)
+		err = b.db.UpdateBuildStatus(bid, BuildFailed)
+		checkNoErr(err)
+		err = b.github.CreateStatus(ev.Head, GithubFailure)
+		checkNoErr(err)
 	}
 	cmd, err = b.generateCleanCommand()
-	CheckNoErr(err)
-	channels, err = b.ExecCommand(path, cmd)
-	CheckNoErr(err)
+	checkNoErr(err)
+	channels, err = b.execCommand(path, cmd)
+	checkNoErr(err)
 	b.db.AppendBuildOutput(bid, "Exec Clean Commands", syscall.Stderr)
 	execCommand()
 }
@@ -160,16 +160,16 @@ func (b *Builder) Start() {
 	}
 }
 
-// Exit all go routines
+// Close will stop all go routines
 func (b *Builder) Close() {
 	for i := 0; i < b.opt.Concurrent; i++ {
-		b.jobChan <- ExitFlag
+		b.jobChan <- exitFlag
 	}
 	b.exitGroup.Wait()
 }
 
 // Internal Object for generating build scripts.
-type CommandBuilder struct {
+type commandBuilder struct {
 	buffer bytes.Buffer
 }
 
@@ -197,25 +197,25 @@ func (b *Builder) generateCleanCommand() (cmd []byte, err error) {
 }
 
 // Add execute command to CommandBuilder then generate command.
-func (b *Builder) toCommand(cb *CommandBuilder) (cmd []byte, err error) {
+func (b *Builder) toCommand(cb *commandBuilder) (cmd []byte, err error) {
 	err = b.execTpl.Execute(&cb.buffer, b.opt)
 	cmd = cb.buffer.Bytes()
 	return
 }
 
 // New Command Builder, also add bootstrap command to builder.
-func (b *Builder) newCommandBuilder() (cb *CommandBuilder, err error) {
-	cb = &CommandBuilder{}
+func (b *Builder) newCommandBuilder() (cb *commandBuilder, err error) {
+	cb = &commandBuilder{}
 	err = b.bootstrapTpl.Execute(&cb.buffer, b.opt)
 	return
 }
 
-// Execute Command Channels.
+// CommandExecChannels is returned by execute command.
 type CommandExecChannels struct {
-	Stdout chan string  // channel for stdout
-	Stderr chan string  // channel for stderr
-	Errors chan error   // channel for exit status, nil if exit 0
-	Cmd    *exec.Cmd    // original command.
+	Stdout chan string // channel for stdout
+	Stderr chan string // channel for stderr
+	Errors chan error  // channel for exit status, nil if exit 0
+	Cmd    *exec.Cmd   // original command.
 }
 
 func reader2chan(r io.Reader, ch chan string, errs chan error) {
@@ -229,7 +229,7 @@ func reader2chan(r io.Reader, ch chan string, errs chan error) {
 	}
 }
 
-func (b *Builder) ExecCommand(basepath string, cmd []byte) (channels *CommandExecChannels, err error) {
+func (b *Builder) execCommand(basepath string, cmd []byte) (channels *CommandExecChannels, err error) {
 	path := fmt.Sprintf("%s%crun", basepath, os.PathSeparator)
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0700)
 	if err != nil {

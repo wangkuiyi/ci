@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/lib/pq"
 	"log"
 	"syscall"
+
+	_ "github.com/lib/pq"
 )
 
+// CIDB is the database api for ci system.
 type CIDB struct {
 	DB *sql.DB
 }
@@ -29,23 +31,24 @@ func newCIDB(username string, passwd string, database string) (db *CIDB, err err
 	return
 }
 
+// Close the database.
 func (db *CIDB) Close() {
 	db.DB.Close()
 }
 
-// Insert a Push Event into database.
-func (db *CIDB) AddPushEvent(event *PushEvent) (build_id int64, err error) {
+// AddPushEvent insert a PushEvent into database.
+func (db *CIDB) AddPushEvent(event *PushEvent) (buildID int64, err error) {
 	addPushEventStmt, err := db.DB.Prepare("select new_push_event($1, $2, $3)")
 	if err != nil {
 		return
 	}
 	defer addPushEventStmt.Close()
-	err = addPushEventStmt.QueryRow(event.Head, event.Ref, event.CloneUrl).Scan(&build_id)
+	err = addPushEventStmt.QueryRow(event.Head, event.Ref, event.CloneURL).Scan(&buildID)
 	return
 }
 
-// Only used for unittest.
-func (db *CIDB) removePushEvent(event *PushEvent, buildId int64) (err error) {
+// removePushEvent Only used for unittest.
+func (db *CIDB) removePushEvent(event *PushEvent, buildID int64) (err error) {
 	_, err = db.DB.Exec("DELETE FROM PushBuilds WHERE push_head = $1", event.Head)
 	if err != nil {
 		return
@@ -54,20 +57,20 @@ func (db *CIDB) removePushEvent(event *PushEvent, buildId int64) (err error) {
 	if err != nil {
 		return
 	}
-	_, err = db.DB.Exec("DELETE FROM Builds WHERE id = $1", buildId)
+	_, err = db.DB.Exec("DELETE FROM Builds WHERE id = $1", buildID)
 	return
 }
 
-// Get Push Event by build id
-func (db *CIDB) GetPushEventByBuildId(buildId int64) (pushEvent *PushEvent, err error) {
+// GetPushEventByBuildID Get PushEvent From Database
+func (db *CIDB) GetPushEventByBuildID(buildID int64) (pushEvent *PushEvent, err error) {
 	pushEvent = &PushEvent{}
 	err = db.DB.QueryRow("SELECT pe.head, pe.ref, pe.clone_url FROM PushEvents AS pe JOIN PushBuilds as pb"+
-		" ON pe.head = pb.push_head WHERE pb.build_id = $1 LIMIT 1", buildId).Scan(
-		&pushEvent.Head, &pushEvent.Ref, &pushEvent.CloneUrl)
+		" ON pe.head = pb.push_head WHERE pb.build_id = $1 LIMIT 1", buildID).Scan(
+		&pushEvent.Head, &pushEvent.Ref, &pushEvent.CloneURL)
 	return
 }
 
-// Recover builds, in case of the previous ci server was killed.
+// RecoverFromPreviousDown in case of the previous ci server was killed.
 func (db *CIDB) RecoverFromPreviousDown(buildChan chan int64) (err error) {
 	r, err := db.DB.Exec("UPDATE Builds SET status='queued', outputs=array[]::text[]," +
 		" outputChannels=array[]::OutputChannel[] " +
@@ -97,8 +100,8 @@ func (db *CIDB) RecoverFromPreviousDown(buildChan chan int64) (err error) {
 	return
 }
 
-// Append build output to build
-func (db *CIDB) AppendBuildOutput(buildId int64, line string, channel int) (err error) {
+// AppendBuildOutput append build output into database
+func (db *CIDB) AppendBuildOutput(buildID int64, line string, channel int) (err error) {
 	var channelStr string
 	switch channel {
 	case syscall.Stderr:
@@ -112,25 +115,28 @@ func (db *CIDB) AppendBuildOutput(buildId int64, line string, channel int) (err 
 
 	_, err = db.DB.Exec("UPDATE Builds SET outputs = array_append(outputs, $1), "+
 		"outputChannels=array_append(outputChannels,$2) WHERE id = $3",
-		line, channelStr, buildId)
+		line, channelStr, buildID)
 	return
 }
 
+// CommandLineOutput the shell output content and channel (stdout/stderr)
 type CommandLineOutput struct {
+	// Content
 	Content string
 	Channel int
 }
 
-// Get build output, from line number `lineno`, the total size is `limit`. If `limit = -1`, means there is no limit
-func (db *CIDB) GetBuildOutputSince(buildId int64, lineno int, limit int) (output []CommandLineOutput, err error) {
-	var total_length int
-	err = db.DB.QueryRow("SELECT array_length(outputs, 1) FROM Builds WHERE id = $1", buildId).Scan(&total_length)
+// GetBuildOutputSince Get build output from line number `lineno`, the total size is `limit`.
+// If `limit = -1`, means there is no limit
+func (db *CIDB) GetBuildOutputSince(buildID int64, lineno int, limit int) (output []CommandLineOutput, err error) {
+	var totalLength int
+	err = db.DB.QueryRow("SELECT array_length(outputs, 1) FROM Builds WHERE id = $1", buildID).Scan(&totalLength)
 	if err != nil {
 		return
 	}
 
 	// calculate the output length, which return.
-	length := total_length - lineno
+	length := totalLength - lineno
 	if length <= 0 {
 		err = errors.New("Line no > total length, database error")
 		return
@@ -145,11 +151,11 @@ func (db *CIDB) GetBuildOutputSince(buildId int64, lineno int, limit int) (outpu
 	if limit == -1 {
 		rows, err = db.DB.Query("SELECT unnest(outputs[$1:array_length(outputs, 1)]), "+
 			"unnest(outputChannels[$1:array_length(outputChannels, 1)]) FROM Builds WHERE id = $2",
-			lineno, buildId)
+			lineno, buildID)
 	} else {
 		rows, err = db.DB.Query("SELECT unnest(outputs[$1:$3]), "+
 			"unnest(outputChannels[$1:$3]) FROM Builds WHERE id = $2",
-			lineno, buildId, lineno+length)
+			lineno, buildID, lineno+length)
 	}
 	if err != nil {
 		return
@@ -174,21 +180,25 @@ func (db *CIDB) GetBuildOutputSince(buildId int64, lineno int, limit int) (outpu
 	return
 }
 
-// Get whole build output
-func (db *CIDB) GetBuildOutput(buildId int64) (output []CommandLineOutput, err error) {
-	output, err = db.GetBuildOutputSince(buildId, 0, -1)
+// GetBuildOutput get the whole build output
+func (db *CIDB) GetBuildOutput(buildID int64) (output []CommandLineOutput, err error) {
+	output, err = db.GetBuildOutputSince(buildID, 0, -1)
 	return
 }
 
 const (
-	BUILD_RUNNING = "running"
-	BUILD_SUCCESS = "success"
-	BUILD_ERROR   = "error"
-	BUILD_FAILED  = "failed"
+	// BuildRunning Build Status in Database, running.
+	BuildRunning = "running"
+	// BuildSuccess Build Status in Database, success.
+	BuildSuccess = "success"
+	// BuildError Build Status in Database, error. Error means some build system internal error happend and the ci script not run.
+	BuildError = "error"
+	// BuildFailed Build Status in Database, failed.
+	BuildFailed = "failed"
 )
 
-// Update build status in database.
-func (db *CIDB) UpdateBuildStatus(buildId int64, status string) (err error) {
-	_, err = db.DB.Exec("UPDATE Builds SET status = $1 WHERE id = $2", status, buildId)
+// UpdateBuildStatus update build status in database.
+func (db *CIDB) UpdateBuildStatus(buildID int64, status string) (err error) {
+	_, err = db.DB.Exec("UPDATE Builds SET status = $1 WHERE id = $2", status, buildID)
 	return
 }

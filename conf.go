@@ -4,57 +4,58 @@ package main
 import (
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
+
+	"gopkg.in/yaml.v2"
 )
 
-// Option for HTTP Server and Github Webhook
-type HttpOption struct {
+// HTTPOption used for HTTP Server and Github Webhook
+type HTTPOption struct {
 	Addr   string // http address
 	CIUri  string // the uri of Github WebHook
 	Secret string // Github WebHook secret
 
-	StatusUri string // the status uri for each build
+	StatusURI string // the status uri for each build
 	Hostname  string // the http host.
 }
 
-// Option for github API option
+// GithubAPIOption for github API option
 type GithubAPIOption struct {
-	Token       string  // github personal token.
-	Owner       string  // Repository Owner
-	Name        string  // Repository Name
-	Description string  // Description for CI System. Such `CI System for mac os GPU`
+	Token       string // github personal token.
+	Owner       string // Repository Owner
+	Name        string // Repository Name
+	Description string // Description for CI System. Such `CI System for mac os GPU`
 }
 
-
-// Option for postgres database
+// DatabaseOption for postgres database
 type DatabaseOption struct {
 	User         string
 	Password     string
 	DatabaseName string
 }
 
-// Option for builder
+// BuildOption for builder
 type BuildOption struct {
-	Concurrent int	// how many build scripts can be performed in parallel.
-			// The builds are executed in different directory
-	Dir        string  // Base directory for builder. Each go routine Dir will be ${Dir}/id
-	Env        map[string]string  // The build environment can be anything. Such as OS=osx OS_VERSION=10.11
-	Filename   string  // The ci script filename. default is `./ci.sh`
+	Concurrent int // how many build scripts can be performed in parallel.
+	// The builds are executed in different directory
+	Dir      string            // Base directory for builder. Each go routine Dir will be ${Dir}/id
+	Env      map[string]string // The build environment can be anything. Such as OS=osx OS_VERSION=10.11
+	Filename string            // The ci script filename. default is `./ci.sh`
 
-	BootstrapTpl      string  // bootstrap template, used for setting env
-	PushEventCloneTpl string  // push event clone template. used for clone push event
-	ExecuteTpl        string  // execution template, used for executing ci.sh
-	CleanTpl          string  // clean files.
+	BootstrapTpl      string // bootstrap template, used for setting env
+	PushEventCloneTpl string // push event clone template. used for clone push event
+	ExecuteTpl        string // execution template, used for executing ci.sh
+	CleanTpl          string // clean files.
 }
 
+// Options in yaml configration file.
 type Options struct {
 	// Version, currently version field is not used, but set this field for future capacity.
 	Version int
 
 	// HTTP
-	HTTP HttpOption
+	HTTP HTTPOption
 
 	// Database
 	Database DatabaseOption
@@ -69,11 +70,11 @@ type Options struct {
 // Create new options with default values.
 func newOptions() *Options {
 	return &Options{
-		HTTP: HttpOption{
+		HTTP: HTTPOption{
 			Addr:      ":8000",
 			CIUri:     "/ci/",
 			Secret:    "",
-			StatusUri: "/status/",
+			StatusURI: "/status/",
 			Hostname:  "",
 		},
 		Database: DatabaseOption{
@@ -124,7 +125,7 @@ const usage string = `Usage %s [OPTIONS]
 Options:
 `
 
-// Parse arguments.
+// ParseArgs is used for parsing command line argument, and read the configuration file, then return the Options
 func ParseArgs() (opts *Options) {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
@@ -135,10 +136,10 @@ func ParseArgs() (opts *Options) {
 	flag.Parse()
 	opts = newOptions()
 	f, err := os.Open(*fn)
-	CheckNoErr(err)
+	checkNoErr(err)
 	content, err := ioutil.ReadAll(f)
-	CheckNoErr(err)
+	checkNoErr(err)
 	err = yaml.Unmarshal(content, opts)
-	CheckNoErr(err)
+	checkNoErr(err)
 	return
 }

@@ -1,15 +1,17 @@
-//  handle the github API
+//handle the github API
 package main
 
 import (
 	"fmt"
+
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
 
+// GithubAPI is used for ci system to access github api.
 type GithubAPI struct {
 	opts     *GithubAPIOption
-	httpOpts *HttpOption
+	httpOpts *HTTPOption
 	cli      *github.Client
 }
 
@@ -18,7 +20,7 @@ func newGithubAPI(opts *Options) *GithubAPI {
 	tc := oauth2.NewClient(oauth2.NoContext, ts)
 	gh := github.NewClient(tc)
 	_, _, err := gh.Repositories.Get(opts.Github.Owner, opts.Github.Name)
-	CheckNoErr(err)
+	checkNoErr(err)
 	return &GithubAPI{
 		opts:     &opts.Github,
 		cli:      gh,
@@ -27,15 +29,19 @@ func newGithubAPI(opts *Options) *GithubAPI {
 }
 
 const (
-	GITHUB_PENDING = "pending"
-	GITHUB_SUCCESS = "success"
-	GITHUB_ERROR   = "error"
-	GITHUB_FAILURE = "failure"
+	// GithubPending github check status pending
+	GithubPending = "pending"
+	// GithubSuccess github check status success
+	GithubSuccess = "success"
+	// GithubError github check status error
+	GithubError = "error"
+	// GithubFailure github check status failure
+	GithubFailure = "failure"
 )
 
-// Create a check status for version `sha`.
+// CreateStatus will a check status for version `sha`.
 func (gh *GithubAPI) CreateStatus(sha string, status string) error {
-	url := fmt.Sprintf("%s%s%s", gh.httpOpts.Hostname, gh.httpOpts.StatusUri, sha)
+	url := fmt.Sprintf("%s%s%s", gh.httpOpts.Hostname, gh.httpOpts.StatusURI, sha)
 	_, _, err := gh.cli.Repositories.CreateStatus(gh.opts.Owner, gh.opts.Name, sha, &github.RepoStatus{
 		TargetURL:   &url,
 		State:       &status,
