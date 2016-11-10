@@ -16,6 +16,18 @@ type CIDB struct {
 	DB *sql.DB
 }
 
+// PushEvent that ci server actually used.
+type PushEvent struct {
+	Ref      string
+	Head     string
+	CloneURL string
+}
+
+// BranchName Get branch name from PushEvent. Used for template
+func (ev *PushEvent) BranchName() string {
+	return ev.Ref[11:]
+}
+
 // Create a database.
 func newCIDB(username string, passwd string, database string) (db *CIDB, err error) {
 	sdb, err := sql.Open("postgres", fmt.Sprintf("postgres://%s:%s@localhost/%s?sslmode=disable",
@@ -128,25 +140,8 @@ type CommandLineOutput struct {
 
 // GetBuildOutputSince Get build output from line number `lineno`, the total size is `limit`.
 // If `limit = -1`, means there is no limit
-func (db *CIDB) GetBuildOutputSince(buildID int64, lineno int, limit int) (output []CommandLineOutput, err error) {
-	var totalLength int
-	err = db.DB.QueryRow("SELECT array_length(outputs, 1) FROM Builds WHERE id = $1", buildID).Scan(&totalLength)
-	if err != nil {
-		return
-	}
-
-	// calculate the output length, which return.
-	length := totalLength - lineno
-	if length <= 0 {
-		err = errors.New("Line no > total length, database error")
-		return
-	}
-	if limit >= 0 {
-		if limit < length {
-			length = limit
-		}
-	}
-
+func (db *CIDB) GetBuildOutputSince(buildID, lineno, limit int64) (output []CommandLineOutput, err error) {
+	log.Println(buildID, lineno, limit)
 	var rows *sql.Rows
 	if limit == -1 {
 		rows, err = db.DB.Query("SELECT unnest(outputs[$1:array_length(outputs, 1)]), "+
@@ -155,28 +150,33 @@ func (db *CIDB) GetBuildOutputSince(buildID int64, lineno int, limit int) (outpu
 	} else {
 		rows, err = db.DB.Query("SELECT unnest(outputs[$1:$3]), "+
 			"unnest(outputChannels[$1:$3]) FROM Builds WHERE id = $2",
-			lineno, buildID, lineno+length)
+			lineno, buildID, lineno+limit)
 	}
 	if err != nil {
 		return
 	}
-	defer rows.Close()
-	log.Println(length)
-	output = make([]CommandLineOutput, length)
-	i := 0
 	var channelTmp string
 	for rows.Next() {
-		err = rows.Scan(&output[i].Content, &channelTmp)
+		opt := CommandLineOutput{}
+		err = rows.Scan(&opt.Content, &channelTmp)
 		if err != nil {
 			return
 		}
 		if channelTmp == "stdout" {
-			output[i].Channel = syscall.Stdout
+			opt.Channel = syscall.Stdout
 		} else {
-			output[i].Channel = syscall.Stderr
+			opt.Channel = syscall.Stderr
 		}
-		i++
+		output = append(output, opt)
 	}
+	return
+}
+
+// GetBuildStatus get build status by build id
+func (db *CIDB) GetBuildStatus(buildID int64) (status BuildStatus, err error) {
+	var statusStr string
+	err = db.DB.QueryRow("SELECT status FROM Builds WHERE id = $1 LIMIT 1", buildID).Scan(&statusStr)
+	status = str2BuildStatus(statusStr)
 	return
 }
 
@@ -198,6 +198,8 @@ const (
 	BuildError
 	// BuildFailed Build Status in Database, failed.
 	BuildFailed
+	// BuildQueued Build Status in Database, queued.
+	BuildQueued
 )
 
 func (status BuildStatus) String() string {
@@ -210,6 +212,8 @@ func (status BuildStatus) String() string {
 		return "error"
 	case 3:
 		return "failed"
+	case 4:
+		return "queued"
 	default:
 		return ""
 	}
@@ -225,6 +229,8 @@ func str2BuildStatus(str string) BuildStatus {
 		return 2
 	case "failed":
 		return 3
+	case "queued":
+		return 4
 	default:
 		return -1
 	}
@@ -269,5 +275,31 @@ OFFSET $3
 		builds = append(builds, bs)
 	}
 
+	return
+}
+
+// GetPushEventByHead return the push event object by head sha1
+func (db *CIDB) GetPushEventByHead(sha string) (event *PushEvent, err error) {
+	stmt := `SELECT head, ref, clone_url FROM PushEvents WHERE head = $1 LIMIT 1`
+	event = &PushEvent{}
+	err = db.DB.QueryRow(stmt, sha).Scan(&event.Head, &event.Ref, &event.CloneURL)
+	return
+}
+
+// GetBuildIDFromPushEventHead return all build id associate by push event
+func (db *CIDB) GetBuildIDFromPushEventHead(sha string) (buildID []int64, err error) {
+	stmt := `SELECT build_id FROM PushBuilds WHERE push_head = $1 ORDER BY build_id DESC`
+	rows, err := db.DB.Query(stmt, sha)
+	if err != nil {
+		return
+	}
+	var tmp int64
+	for rows.Next() {
+		err = rows.Scan(&tmp)
+		if err != nil {
+			return
+		}
+		buildID = append(buildID, tmp)
+	}
 	return
 }

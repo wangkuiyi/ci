@@ -41,7 +41,7 @@ const (
 
 // CreateStatus will a check status for version `sha`.
 func (gh *GithubAPI) CreateStatus(sha string, status string) error {
-	url := fmt.Sprintf("%s%s%s", gh.httpOpts.Hostname, gh.httpOpts.StatusURI, sha)
+	url := fmt.Sprintf("%s/status/%s", gh.httpOpts.Hostname, sha)
 	_, _, err := gh.cli.Repositories.CreateStatus(gh.opts.Owner, gh.opts.Name, sha, &github.RepoStatus{
 		TargetURL:   &url,
 		State:       &status,
@@ -51,14 +51,14 @@ func (gh *GithubAPI) CreateStatus(sha string, status string) error {
 }
 
 // ListRemoteBranches List all remote branches
-func (gh *GithubAPI) ListRemoteBranches() ([]*string, error) {
+func (gh *GithubAPI) ListRemoteBranches() ([]string, error) {
 	branches, _, err := gh.cli.Repositories.ListBranches(gh.opts.Owner, gh.opts.Name, nil)
 	if err != nil {
 		return nil, err
 	}
-	retv := make([]*string, len(branches))
+	retv := make([]string, len(branches))
 	for i, b := range branches {
-		retv[i] = b.Name
+		retv[i] = *b.Name
 	}
 	return retv, nil
 }

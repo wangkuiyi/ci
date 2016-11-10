@@ -1,0 +1,19 @@
+{{define "body"}}
+<div class="container">
+    <div class="row">
+        <div class="panel panel-default">
+            <div class="panel panel-heading">
+                Builds for {{ .Event.Head }} in {{ .Event.Ref }}
+            </div>
+            <div class="panel panel-body">
+                <!--TODO(yuyang): Add current build status here. -->
+            </div>
+            <ul class="list-group">
+                {{ range $bid := .Ids }}
+                <li class="list-group-item"><a href="/builds/{{ $bid }}">Build #{{ $bid }}</a></li>
+                {{ end }}
+            </ul>
+        </div>
+    </div>
+</div>
+{{end}}

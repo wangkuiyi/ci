@@ -19,22 +19,16 @@ import (
 
 	"errors"
 
+	"path"
+
+	"strconv"
+
+	"encoding/json"
+
 	"github.com/gorilla/context"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
 )
-
-// PushEvent that ci server actually used.
-type PushEvent struct {
-	Ref      string
-	Head     string
-	CloneURL string
-}
-
-// BranchName Get branch name from PushEvent. Used for template
-func (ev *PushEvent) BranchName() string {
-	return ev.Ref[11:]
-}
 
 // HTTPServer for webhook, website.
 type HTTPServer struct {
@@ -131,8 +125,9 @@ func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI) *HTTPServer {
 	serv.n.Use(negroni.NewLogger())
 	serv.n.Use(serv.renderer)
 	serv.router.HandleFunc("/", serv.homeHandler).Methods("Get").Name("home")
-	//serv.router.HandleFunc(fmt.Sprintf("%s{sha:[0-9a-f]+}", opts.StatusUri), serv.statusHandler).Methods(
-	//	"Get").Name("status")
+	serv.router.HandleFunc("/status/{sha:[0-9a-f]+}", serv.statusHandler).Methods("Get").Name("status")
+	serv.router.HandleFunc("/builds/{buildID:[0-9]+}", serv.buildsHandler).Methods("Get").Name("builds")
+	serv.router.HandleFunc("/build_output/", serv.buildOutputHandler).Methods("Get").Name("buildOutput")
 	serv.n.UseHandler(serv.router)
 	return serv
 }
@@ -171,7 +166,7 @@ func minInt(a, b int) int {
 
 func (httpServ *HTTPServer) homeHandler(res http.ResponseWriter, req *http.Request) {
 	type BranchBuilds struct {
-		Name     *string
+		Name     string
 		Versions []VersionWithStatus
 	}
 	// view objects
@@ -185,7 +180,7 @@ func (httpServ *HTTPServer) homeHandler(res http.ResponseWriter, req *http.Reque
 	vo.Branches = make([]BranchBuilds, len(branches))
 	for i, b := range branches {
 		vo.Branches[i].Name = b
-		builds, err := httpServ.db.ListRecordPushByBranchName(*b, 10, 0)
+		builds, err := httpServ.db.ListRecordPushByBranchName(b, 10, 0)
 		vo.Branches[i].Versions = builds
 		if err != nil {
 			checkNoErr(err)
@@ -198,7 +193,53 @@ func (httpServ *HTTPServer) homeHandler(res http.ResponseWriter, req *http.Reque
 	httpServ.render(res, req, "index", dat)
 }
 
-//func (httpServ* HttpServer) statusHandler(res http.ResponseWriter, req *http.Request) {
-//	sha := path.Base(req.URL)
-//	template.ParseFiles()
-//}
+func (httpServ *HTTPServer) statusHandler(res http.ResponseWriter, req *http.Request) {
+	sha := path.Base(req.RequestURI)
+	event, err := httpServ.db.GetPushEventByHead(sha)
+	checkNoErr(err)
+	ids, err := httpServ.db.GetBuildIDFromPushEventHead(sha)
+	checkNoErr(err)
+	httpServ.render(res, req, "status", map[string]interface{}{
+		"Event": event,
+		"Ids":   ids,
+	})
+}
+
+func (httpServ *HTTPServer) buildsHandler(res http.ResponseWriter, req *http.Request) {
+	bidStr := path.Base(req.RequestURI)
+	bid, err := strconv.ParseInt(bidStr, 10, 64)
+	checkNoErr(err)
+	event, err := httpServ.db.GetPushEventByBuildID(bid)
+	checkNoErr(err)
+	httpServ.render(res, req, "builds", map[string]interface{}{
+		"Event": event,
+		"Id":    bid,
+	})
+}
+
+func (httpServ *HTTPServer) buildOutputHandler(res http.ResponseWriter, req *http.Request) {
+	queryInt := func(key string) int64 {
+		tmpStr := req.URL.Query().Get(key)
+		tmp, err := strconv.ParseInt(tmpStr, 10, 64)
+		checkNoErr(err)
+		return tmp
+	}
+	id := queryInt("id")
+	offset := queryInt("offset")
+	limit := queryInt("limit")
+	output, err := httpServ.db.GetBuildOutputSince(id, offset, limit)
+	checkNoErr(err)
+	status, err := httpServ.db.GetBuildStatus(id)
+	checkNoErr(err)
+	dat, err := json.Marshal(struct {
+		Status  string
+		Outputs []CommandLineOutput
+	}{
+		Status:  status.String(),
+		Outputs: output,
+	})
+	checkNoErr(err)
+	res.Header().Set("Content-Type", "application/json")
+	_, err = res.Write(dat)
+	checkNoErr(err)
+}
