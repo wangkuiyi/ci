@@ -1,0 +1,46 @@
+{{define "body"}}
+<div class="container">
+
+    <div class="jumbotron row">
+    <h1>{{ .Owner }}/{{ .RepoName}}</h1>
+    <p>{{ .Description }}</p>
+    </div>
+
+    <h2>All Branches</h2>
+
+    {{ range $branch := .Vo.Branches }}
+    <div class="row">
+        <div class="panel panel-default">
+            <div class="panel-heading">{{ $branch.Name }}</div>
+            <div class="panel-body">
+                {{if eq (len $branch.Versions) 0}}
+                There is no building in {{ $branch.Name }}
+                {{else}}
+                The building in {{ $branch.Name }} is {{ (index $branch.Versions 0).Status.String }}
+                {{end}}
+            </div>
+            {{ if ne (len $branch.Versions) 0 }}
+            <ul class="list-group">
+                {{ range $ver := $branch.Versions }}
+                <a href="/status/{{ $ver.Sha }}">
+                    <li class="list-group-item">
+                        <!--TODO(yuyang): Complete whole enumerations, or just put this method into go-->
+                        {{ if eq $ver.Status 1}}
+                        <span class="label label-success">{{ $ver.Status.String }}</span>
+                        {{ else if eq $ver.Status 0 }}
+                        <span class="label label-primary">{{ $ver.Status.String }}</span>
+                        {{ end }}
+                        {{ $ver.Sha }}
+                    </li>
+                </a>
+                {{ end }}
+            </ul>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+</div>
+{{end}}
+
+{{define "head"}}
+{{end}}

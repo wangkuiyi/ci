@@ -1,1 +1,12 @@
 *~
+.idea
+bin
+pkg
+src/github.com
+db/data
+src/ci/ci_server/repo
+src/ci/ci_server/run
+src/golang.org
+src/gopkg.in
+configs/build
+ci
