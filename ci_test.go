@@ -87,7 +87,7 @@ func TestMain(m *testing.M) {
 	opts := ParseArgs()
 	opts.Build.Env["os"] = "osx"
 	var err error
-	DB, err = newCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)
+	DB, err = openCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)
 	checkNoErr(err)
 	defer DB.Close()
 	jobChan = make(chan int64)

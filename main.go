@@ -5,10 +5,15 @@ import "log"
 func main() {
 	opts := ParseArgs()
 	github := newGithubAPI(opts)
-	db, err := newCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)
+	err := github.CheckRepo()
 	checkNoErr(err)
+
+	db, err := openCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)
+	checkNoErr(err)
+
 	buildChan := make(chan int64, 256)
 	go func() { checkNoErr(db.RecoverFromPreviousDown(buildChan)) }()
+
 	builder, err := newBuilder(buildChan, opts, db, github)
 	builder.Start()
 	defer builder.Close()

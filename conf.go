@@ -133,12 +133,16 @@ func ParseArgs() (opts *Options) {
 		flag.PrintDefaults()
 	}
 
-	fn := flag.String("config", "ci.yaml", "Configuration File")
+	fn := flag.String("config", "", "Configuration File")
 	flag.Parse()
+
+	if *fn == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	opts = newOptions()
-	f, err := os.Open(*fn)
-	checkNoErr(err)
-	content, err := ioutil.ReadAll(f)
+	content, err := ioutil.ReadFile(*fn)
 	checkNoErr(err)
 	err = yaml.Unmarshal(content, opts)
 	checkNoErr(err)
