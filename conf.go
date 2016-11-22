@@ -136,15 +136,12 @@ func ParseArgs() (opts *Options) {
 	fn := flag.String("config", "", "Configuration File")
 	flag.Parse()
 
-	if *fn == "" {
-		flag.Usage()
-		os.Exit(1)
+	if *fn != "" {
+		opts = newOptions()
+		content, err := ioutil.ReadFile(*fn)
+		checkNoErr(err)
+		err = yaml.Unmarshal(content, opts)
+		checkNoErr(err)
 	}
-
-	opts = newOptions()
-	content, err := ioutil.ReadFile(*fn)
-	checkNoErr(err)
-	err = yaml.Unmarshal(content, opts)
-	checkNoErr(err)
 	return
 }
