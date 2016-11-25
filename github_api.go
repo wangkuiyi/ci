@@ -19,8 +19,6 @@ func newGithubAPI(opts *Options) *GithubAPI {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: opts.Github.Token})
 	tc := oauth2.NewClient(oauth2.NoContext, ts)
 	gh := github.NewClient(tc)
-	_, _, err := gh.Repositories.Get(opts.Github.Owner, opts.Github.Name)
-	checkNoErr(err)
 	return &GithubAPI{
 		opts:     &opts.Github,
 		cli:      gh,
@@ -38,6 +36,12 @@ const (
 	// GithubFailure github check status failure
 	GithubFailure = "failure"
 )
+
+// CheckRepo check if github repository is valid
+func (gh *GithubAPI) CheckRepo() error {
+	_, _, err := gh.cli.Repositories.Get(gh.opts.Owner, gh.opts.Name)
+	return err
+}
 
 // CreateStatus will a check status for version `sha`.
 func (gh *GithubAPI) CreateStatus(sha string, status string) error {

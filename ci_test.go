@@ -2,16 +2,15 @@ package main
 
 import (
 	"log"
-	"os"
 	"syscall"
 	"testing"
+
+	sqlmock "gopkg.in/DATA-DOG/go-sqlmock.v1"
 
 	"github.com/stretchr/testify/assert"
 )
 
-var DB *CIDB
-var jobChan chan int64
-var builder *Builder
+var opts *Options
 
 const BuildCommand = `#!/bin/bash
 echo "Setting Environments"
@@ -41,6 +40,26 @@ func TestAddPushEvent(t *testing.T) {
 		Ref:      "refs/heads/refine_ci_server",
 		Head:     "929924c96f51e2614efcba584fe9cf3a8cb4ec04",
 	}
+
+	opts.Build.Env["os"] = "osx"
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		panic(err)
+	}
+	mock.ExpectPrepare("select new_push_event")
+	rows := sqlmock.NewRows([]string{"buildId"}).AddRow(0)
+	mock.ExpectQuery("select new_push_event").WillReturnRows(rows)
+	rows = sqlmock.NewRows([]string{"pe.head", "pe.ref", "pe.clone_url"}).AddRow(ev.CloneURL, ev.Ref, ev.Head)
+	mock.ExpectQuery("SELECT pe.head, pe.ref, pe.clone_url FROM PushEvents ").WillReturnRows(rows)
+
+	DB := &CIDB{db}
+	checkNoErr(err)
+	defer DB.Close()
+	jobChan := make(chan int64)
+	builder, err := newBuilder(jobChan, opts, DB, nil)
+	checkNoErr(err)
+
 	bid, err := DB.AddPushEvent(&ev)
 	assert.NoError(t, err)
 	getEv, err := DB.GetPushEventByBuildID(bid)
@@ -84,14 +103,5 @@ func TestAddPushEvent(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	opts := ParseArgs()
-	opts.Build.Env["os"] = "osx"
-	var err error
-	DB, err = newCIDB(opts.Database.User, opts.Database.Password, opts.Database.DatabaseName)
-	checkNoErr(err)
-	defer DB.Close()
-	jobChan = make(chan int64)
-	builder, err = newBuilder(jobChan, opts, DB, nil)
-	checkNoErr(err)
-	os.Exit(m.Run())
+	opts = ParseArgs()
 }

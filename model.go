@@ -28,8 +28,8 @@ func (ev *PushEvent) BranchName() string {
 	return ev.Ref[11:]
 }
 
-// Create a database.
-func newCIDB(username string, passwd string, database string) (db *CIDB, err error) {
+// openCIDB opens database.
+func openCIDB(username string, passwd string, database string) (db *CIDB, err error) {
 	sdb, err := sql.Open("postgres", fmt.Sprintf("postgres://%s:%s@localhost/%s?sslmode=disable",
 		username, passwd, database))
 	if err != nil {
@@ -54,8 +54,13 @@ func (db *CIDB) AddPushEvent(event *PushEvent) (buildID int64, err error) {
 	if err != nil {
 		return
 	}
-	defer addPushEventStmt.Close()
+
 	err = addPushEventStmt.QueryRow(event.Head, event.Ref, event.CloneURL).Scan(&buildID)
+	if err != nil {
+		return
+	}
+
+	err = addPushEventStmt.Close()
 	return
 }
 
