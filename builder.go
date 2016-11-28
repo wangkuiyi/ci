@@ -4,11 +4,12 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path"
+	"strconv"
 	"sync"
 	"syscall"
 	"text/template"
@@ -35,7 +36,7 @@ type Builder struct {
 // It will create the building directory for each go routine. The building dir can be configured in configuration file.
 func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) (builder *Builder, err error) {
 	for i := 0; i < opts.Build.Concurrent; i++ {
-		path := fmt.Sprintf("%s%c%d", opts.Build.Dir, os.PathSeparator, i)
+		path := path.Join(opts.Build.Dir, strconv.Itoa(i))
 		err = os.MkdirAll(path, 0755)
 		if err != nil {
 			return
@@ -68,7 +69,7 @@ func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) 
 // The entry for each build goroutine.
 // Param id is the go routine id, start from 0.
 func (b *Builder) builderMain(id int) {
-	path := fmt.Sprintf("%s%c%d", b.opt.Dir, os.PathSeparator, id)
+	path := path.Join(b.opt.Dir, strconv.Itoa(id))
 	var bid int64
 	var ok bool
 	for {
@@ -227,7 +228,7 @@ func reader2chan(r io.Reader, ch chan string, errs chan error) {
 }
 
 func (b *Builder) execCommand(basepath string, cmd []byte) (channels *CommandExecChannels, err error) {
-	path := fmt.Sprintf("%s%crun", basepath, os.PathSeparator)
+	path := path.Join(basepath, "run")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0700)
 	if err != nil {
 		return

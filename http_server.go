@@ -60,7 +60,7 @@ func newRenderer(opts *Options) *Renderer {
 	checkNoErr(filepath.Walk(tmplDir, func(p string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
 			if strings.HasSuffix(p, ".gohtml") && !strings.HasSuffix(p, "base.gohtml") {
-				tmpl := template.Must(template.ParseFiles(fmt.Sprintf("%sbase.gohtml", opts.HTTP.TemplateDir), p))
+				tmpl := template.Must(template.ParseFiles(path.Join(opts.HTTP.TemplateDir, "base.gohtml"), p))
 				if strings.HasPrefix(p, tmplDir) {
 					p = p[len(tmplDir):]
 					log.Println("Loading template ", p)
