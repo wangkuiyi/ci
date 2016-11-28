@@ -2,8 +2,8 @@
 package main
 
 import (
+	"io/ioutil"
 	"net/http"
-	"os"
 
 	"github.com/bmatsuo/go-jsontree"
 	"github.com/reyoung/github_hook"
@@ -11,13 +11,9 @@ import (
 	"fmt"
 	"html/template"
 
-	"path/filepath"
-
 	"strings"
 
 	"log"
-
-	"errors"
 
 	"path"
 
@@ -53,25 +49,19 @@ type Renderer struct {
 
 func newRenderer(opts *Options) *Renderer {
 	tmpls := make(map[string]*template.Template)
-	tmplDir := opts.HTTP.TemplateDir
-	if strings.HasPrefix(opts.HTTP.TemplateDir, "./") {
-		tmplDir = tmplDir[len("./"):]
+	files, err := ioutil.ReadDir(opts.HTTP.TemplateDir)
+	if err != nil {
+		panic(err)
 	}
-	checkNoErr(filepath.Walk(tmplDir, func(p string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			if strings.HasSuffix(p, ".gohtml") && !strings.HasSuffix(p, "base.gohtml") {
-				tmpl := template.Must(template.ParseFiles(path.Join(opts.HTTP.TemplateDir, "base.gohtml"), p))
-				if strings.HasPrefix(p, tmplDir) {
-					p = p[len(tmplDir):]
-					log.Println("Loading template ", p)
-					tmpls[p] = tmpl
-				} else {
-					return errors.New(fmt.Sprint("Error when loading template ", p))
-				}
+	for _, f := range files {
+		if !f.IsDir() {
+			name := f.Name()
+			if strings.HasSuffix(name, ".gohtml") && !strings.HasSuffix(name, "base.gohtml") {
+				tmpl := template.Must(template.ParseFiles(path.Join(opts.HTTP.TemplateDir, "base.gohtml"), path.Join(opts.HTTP.TemplateDir, name)))
+				tmpls[name] = tmpl
 			}
 		}
-		return nil
-	}))
+	}
 
 	return &Renderer{
 		tmpls: tmpls,
