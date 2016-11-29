@@ -101,9 +101,15 @@ func (b *Builder) build(bid int64, path string) {
 			checkNoErr(err)
 		}
 	}()
-	cmd, err := b.generatePushEventBuildCommand(ev)
+
+	var buffer bytes.Buffer
+	err = b.bootstrapTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
-	channels, err := b.execCommand(path, cmd)
+	err = b.pushEventCloneTpl.Execute(&buffer, ev)
+	checkNoErr(err)
+	err = b.execTpl.Execute(&buffer, b.opt)
+	checkNoErr(err)
+	channels, err := b.execCommand(path, buffer.Bytes())
 	checkNoErr(err)
 	execCommand := func() bool {
 		exit := false
@@ -143,9 +149,11 @@ func (b *Builder) build(bid int64, path string) {
 		err = b.github.CreateStatus(ev.Head, GithubFailure)
 		checkNoErr(err)
 	}
-	cmd, err = b.generateCleanCommand()
+
+	var buf bytes.Buffer
+	err = b.cleanTpl.Execute(&buf, b.opt)
 	checkNoErr(err)
-	channels, err = b.execCommand(path, cmd)
+	channels, err = b.execCommand(path, buf.Bytes())
 	checkNoErr(err)
 	b.db.AppendBuildOutput(bid, "Exec Clean Commands", syscall.Stderr)
 	execCommand()
@@ -163,48 +171,6 @@ func (b *Builder) Start() {
 func (b *Builder) Close() {
 	close(b.jobChan)
 	b.exitGroup.Wait()
-}
-
-// Internal Object for generating build scripts.
-type commandBuilder struct {
-	buffer bytes.Buffer
-}
-
-// Generate whole shell script for building a PushEvent.
-// Returns a shell scripts, and error
-func (b *Builder) generatePushEventBuildCommand(ev PushEvent) (cmd []byte, err error) {
-	cb, err := b.newCommandBuilder()
-	if err != nil {
-		return
-	}
-	err = b.pushEventCloneTpl.Execute(&cb.buffer, ev)
-	if err != nil {
-		return
-	}
-	cmd, err = b.toCommand(cb)
-	return
-}
-
-// Generate clean script.
-func (b *Builder) generateCleanCommand() (cmd []byte, err error) {
-	buf := bytes.NewBuffer([]byte{})
-	err = b.cleanTpl.Execute(buf, b.opt)
-	cmd = buf.Bytes()
-	return
-}
-
-// Add execute command to CommandBuilder then generate command.
-func (b *Builder) toCommand(cb *commandBuilder) (cmd []byte, err error) {
-	err = b.execTpl.Execute(&cb.buffer, b.opt)
-	cmd = cb.buffer.Bytes()
-	return
-}
-
-// New Command Builder, also add bootstrap command to builder.
-func (b *Builder) newCommandBuilder() (cb *commandBuilder, err error) {
-	cb = &commandBuilder{}
-	err = b.bootstrapTpl.Execute(&cb.buffer, b.opt)
-	return
 }
 
 // CommandExecChannels is returned by execute command.
