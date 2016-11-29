@@ -222,7 +222,7 @@ func (httpServ *HTTPServer) buildOutputHandler(res http.ResponseWriter, req *htt
 		Status  string
 		Outputs []CommandLineOutput
 	}{
-		Status:  status.String(),
+		Status:  string(status),
 		Outputs: output,
 	})
 	checkNoErr(err)

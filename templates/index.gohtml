@@ -16,7 +16,7 @@
                 {{if eq (len $branch.Versions) 0}}
                 There is no building in {{ $branch.Name }}
                 {{else}}
-                The building in {{ $branch.Name }} is {{ (index $branch.Versions 0).Status.String }}
+                The building in {{ $branch.Name }} is {{ (index $branch.Versions 0).Status }}
                 {{end}}
             </div>
             {{ if ne (len $branch.Versions) 0 }}
@@ -25,10 +25,10 @@
                 <a href="/status/{{ $ver.Sha }}">
                     <li class="list-group-item">
                         <!--TODO(yuyang): Complete whole enumerations, or just put this method into go-->
-                        {{ if eq $ver.Status 1}}
-                        <span class="label label-success">{{ $ver.Status.String }}</span>
-                        {{ else if eq $ver.Status 0 }}
-                        <span class="label label-primary">{{ $ver.Status.String }}</span>
+                        {{ if eq $ver.Status "success"}}
+                        <span class="label label-success">{{ $ver.Status }}</span>
+                        {{ else if eq $ver.Status "running" }}
+                        <span class="label label-primary">{{ $ver.Status }}</span>
                         {{ end }}
                         {{ $ver.Sha }}
                     </li>

@@ -2,16 +2,13 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
-	"io"
-	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path"
 	"strconv"
 	"sync"
-	"syscall"
 	"text/template"
 )
 
@@ -105,58 +102,67 @@ func (b *Builder) build(bid int64, path string) {
 	var buffer bytes.Buffer
 	err = b.bootstrapTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
-	err = b.pushEventCloneTpl.Execute(&buffer, ev)
+	err = b.pushEventCloneTpl.Execute(&buffer, struct {
+		PushEvent
+		BuildPath string
+	}{PushEvent: ev, BuildPath: path})
 	checkNoErr(err)
 	err = b.execTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
-	channels, err := b.execCommand(path, buffer.Bytes())
+	cmd, err := genCmd(path, buffer.Bytes())
 	checkNoErr(err)
-	execCommand := func() bool {
-		exit := false
-		ok := false
-		for !exit {
-			select {
-			case stdout := <-channels.Stdout:
-				b.db.AppendBuildOutput(bid, stdout, syscall.Stdout)
-				log.Println(stdout)
-			case stderr := <-channels.Stderr:
-				b.db.AppendBuildOutput(bid, stderr, syscall.Stderr)
-				log.Println(stderr)
-			case err = <-channels.Errors:
-				if err != nil {
-					b.db.AppendBuildOutput(bid, err.Error(), syscall.Stderr)
-				} else {
-					ok = true
-					b.db.AppendBuildOutput(bid, "Exit 0", syscall.Stderr)
-				}
-				exit = true
-				break
-			}
-		}
-		return ok
-	}
-	b.db.AppendBuildOutput(bid, "Exec Build Commands", syscall.Stderr)
-	ok := execCommand()
-
-	if ok {
-		err = b.db.UpdateBuildStatus(bid, BuildSuccess)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = b.db.AppendBuildOutput(bid, "Exec Build Commands", false)
+	checkNoErr(err)
+	buildErr := cmd.Run()
+	err = b.db.AppendBuildOutput(bid, string(stdout.Bytes()), true)
+	checkNoErr(err)
+	err = b.db.AppendBuildOutput(bid, string(stderr.Bytes()), false)
+	checkNoErr(err)
+	if buildErr != nil {
+		err = b.db.AppendBuildOutput(bid, buildErr.Error(), false)
 		checkNoErr(err)
-		err = b.github.CreateStatus(ev.Head, GithubSuccess)
-		checkNoErr(err)
-	} else {
 		err = b.db.UpdateBuildStatus(bid, BuildFailed)
 		checkNoErr(err)
 		err = b.github.CreateStatus(ev.Head, GithubFailure)
 		checkNoErr(err)
+	} else {
+		err = b.db.AppendBuildOutput(bid, "Exit 0", false)
+		checkNoErr(err)
+		err = b.db.UpdateBuildStatus(bid, BuildSuccess)
+		checkNoErr(err)
+		err = b.github.CreateStatus(ev.Head, GithubSuccess)
+		checkNoErr(err)
 	}
 
+	stdout, stderr = bytes.Buffer{}, bytes.Buffer{}
 	var buf bytes.Buffer
-	err = b.cleanTpl.Execute(&buf, b.opt)
+	err = b.cleanTpl.Execute(&buf, struct {
+		*BuildOption
+		BuildPath string
+	}{BuildOption: b.opt, BuildPath: path})
 	checkNoErr(err)
-	channels, err = b.execCommand(path, buf.Bytes())
+	cmd, err = genCmd(path, buf.Bytes())
 	checkNoErr(err)
-	b.db.AppendBuildOutput(bid, "Exec Clean Commands", syscall.Stderr)
-	execCommand()
+
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	b.db.AppendBuildOutput(bid, "Exec Clean Commands", false)
+	checkNoErr(err)
+	buildErr = cmd.Run()
+	err = b.db.AppendBuildOutput(bid, string(stdout.Bytes()), true)
+	checkNoErr(err)
+	err = b.db.AppendBuildOutput(bid, string(stderr.Bytes()), false)
+	checkNoErr(err)
+	if buildErr != nil {
+		err = b.db.AppendBuildOutput(bid, buildErr.Error(), false)
+		checkNoErr(err)
+	} else {
+		err = b.db.AppendBuildOutput(bid, "Exit 0", false)
+		checkNoErr(err)
+	}
 }
 
 // Start all go routines
@@ -173,27 +179,9 @@ func (b *Builder) Close() {
 	b.exitGroup.Wait()
 }
 
-// CommandExecChannels is returned by execute command.
-type CommandExecChannels struct {
-	Stdout chan string // channel for stdout
-	Stderr chan string // channel for stderr
-	Errors chan error  // channel for exit status, nil if exit 0
-	Cmd    *exec.Cmd   // original command.
-}
-
-func reader2chan(r io.Reader, ch chan string, errs chan error) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		ch <- scanner.Text()
-	}
-
-	if err := scanner.Err(); err != nil {
-		errs <- err
-	}
-}
-
-func (b *Builder) execCommand(basepath string, cmd []byte) (channels *CommandExecChannels, err error) {
-	path := path.Join(basepath, "run")
+func genCmd(basepath string, cmd []byte) (c *exec.Cmd, err error) {
+	path := path.Join(basepath, strconv.Itoa(rand.Int()))
+	// the build folder will be cleaned later
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0700)
 	if err != nil {
 		return
@@ -203,32 +191,6 @@ func (b *Builder) execCommand(basepath string, cmd []byte) (channels *CommandExe
 	if err != nil {
 		return
 	}
-	c := exec.Command(path)
-	channels = &CommandExecChannels{
-		Stdout: make(chan string),
-		Stderr: make(chan string),
-		Errors: make(chan error),
-		Cmd:    c,
-	}
-	stdout, err := c.StdoutPipe()
-	if err != nil {
-		return
-	}
-	stderr, err := c.StderrPipe()
-	if err != nil {
-		return
-	}
-
-	err = c.Start()
-	if err != nil {
-		return
-	}
-
-	go reader2chan(stdout, channels.Stdout, channels.Errors)
-	go reader2chan(stderr, channels.Stderr, channels.Errors)
-	go func() {
-		e := c.Wait()
-		channels.Errors <- e
-	}()
+	c = exec.Command(path)
 	return
 }

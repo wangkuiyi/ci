@@ -3,7 +3,6 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"syscall"
@@ -119,16 +118,16 @@ func (db *CIDB) RecoverFromPreviousDown(buildChan chan int64) (err error) {
 }
 
 // AppendBuildOutput append build output into database
-func (db *CIDB) AppendBuildOutput(buildID int64, line string, channel int) (err error) {
-	var channelStr string
-	switch channel {
-	case syscall.Stderr:
-		channelStr = "stderr"
-	case syscall.Stdout:
-		channelStr = "stdout"
-	default:
-		err = errors.New("Unsupport output channel, should be stdout or stderr")
+func (db *CIDB) AppendBuildOutput(buildID int64, line string, stdout bool) (err error) {
+	if line == "" {
 		return
+	}
+
+	var channelStr string
+	if stdout {
+		channelStr = "stdout"
+	} else {
+		channelStr = "stderr"
 	}
 
 	_, err = db.DB.Exec("UPDATE Builds SET outputs = array_append(outputs, $1), "+
@@ -182,7 +181,7 @@ func (db *CIDB) GetBuildOutputSince(buildID, lineno, limit int64) (output []Comm
 func (db *CIDB) GetBuildStatus(buildID int64) (status BuildStatus, err error) {
 	var statusStr string
 	err = db.DB.QueryRow("SELECT status FROM Builds WHERE id = $1 LIMIT 1", buildID).Scan(&statusStr)
-	status = str2BuildStatus(statusStr)
+	status = BuildStatus(statusStr)
 	return
 }
 
@@ -193,58 +192,24 @@ func (db *CIDB) GetBuildOutput(buildID int64) (output []CommandLineOutput, err e
 }
 
 // BuildStatus in database
-type BuildStatus int
+type BuildStatus string
 
 const (
 	// BuildRunning Build Status in Database, running.
-	BuildRunning BuildStatus = iota
+	BuildRunning = "running"
 	// BuildSuccess Build Status in Database, success.
-	BuildSuccess
+	BuildSuccess = "success"
 	// BuildError Build Status in Database, error. Error means some build system internal error happend and the ci script not run.
-	BuildError
+	BuildError = "error"
 	// BuildFailed Build Status in Database, failed.
-	BuildFailed
+	BuildFailed = "failed"
 	// BuildQueued Build Status in Database, queued.
-	BuildQueued
+	BuildQueued = "queued"
 )
-
-func (status BuildStatus) String() string {
-	switch status {
-	case 0:
-		return "running"
-	case 1:
-		return "success"
-	case 2:
-		return "error"
-	case 3:
-		return "failed"
-	case 4:
-		return "queued"
-	default:
-		return ""
-	}
-}
-
-func str2BuildStatus(str string) BuildStatus {
-	switch str {
-	case "running":
-		return 0
-	case "success":
-		return 1
-	case "error":
-		return 2
-	case "failed":
-		return 3
-	case "queued":
-		return 4
-	default:
-		return -1
-	}
-}
 
 // UpdateBuildStatus update build status in database.
 func (db *CIDB) UpdateBuildStatus(buildID int64, status BuildStatus) (err error) {
-	_, err = db.DB.Exec("UPDATE Builds SET status = $1 WHERE id = $2", status.String(), buildID)
+	_, err = db.DB.Exec("UPDATE Builds SET status = $1 WHERE id = $2", string(status), buildID)
 	return
 }
 
@@ -277,7 +242,7 @@ OFFSET $3
 		if err != nil {
 			return
 		}
-		bs := VersionWithStatus{sha, str2BuildStatus(status)}
+		bs := VersionWithStatus{sha, BuildStatus(status)}
 		builds = append(builds, bs)
 	}
 
