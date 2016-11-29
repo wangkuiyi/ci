@@ -27,9 +27,8 @@ import (
 
 // HTTPServer for webhook, website.
 type HTTPServer struct {
-	EventQueue chan interface{} // Channel for git hub web hook event
-	server     *githubHook      // Github Webhook handler.
-	addr       string           // http addr.
+	server *githubHook // Github Webhook handler.
+	addr   string      // http addr.
 
 	router *mux.Router      // Router
 	n      *negroni.Negroni // A http middleware framework
@@ -93,10 +92,10 @@ func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[s
 	}
 }
 
-func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI) *HTTPServer {
+func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI, eventQueue chan<- interface{}) *HTTPServer {
 	serv := &HTTPServer{
-		EventQueue: nil,
 		server: &githubHook{
+			Events:       eventQueue,
 			Secret:       opts.HTTP.Secret,
 			EventHandler: make(map[string]func(*jsontree.JsonTree) (interface{}, error)),
 		},
@@ -107,7 +106,6 @@ func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI) *HTTPServer {
 		renderer: newRenderer(opts),
 		github:   github,
 	}
-	serv.EventQueue = serv.server.Events
 	serv.server.EventHandler["push"] = onPushEvent
 	serv.n.Use(negroni.NewRecovery())
 	serv.n.Use(negroni.NewLogger())
@@ -127,19 +125,19 @@ func (httpServ *HTTPServer) ListenAndServe() error {
 }
 
 // onPushEvent Webhook. https://developer.github.com/v3/activity/events/types/#pushevent
-func onPushEvent(request *jsontree.JsonTree) (ev interface{}, err error) {
-	event := &PushEvent{}
-	ev = event
+func onPushEvent(request *jsontree.JsonTree) (interface{}, error) {
+	event := PushEvent{}
+	var err error
 	event.Ref, err = request.Get("ref").String()
 	if err != nil {
-		return
+		return nil, err
 	}
 	event.CloneURL, err = request.Get("repository").Get("clone_url").String()
 	if err != nil {
-		return
+		return nil, err
 	}
 	event.Head, err = request.Get("head_commit").Get("id").String()
-	return
+	return event, nil
 }
 
 func (httpServ *HTTPServer) render(res http.ResponseWriter, req *http.Request, name string, data map[string]interface{}) {

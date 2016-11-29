@@ -76,9 +76,8 @@ func (b *Builder) builderMain(id int) {
 		bid, ok = <-b.jobChan
 		if !ok {
 			break
-		} else {
-			b.build(bid, path)
 		}
+		b.build(bid, path)
 	}
 	b.exitGroup.Done()
 }
@@ -173,7 +172,7 @@ type commandBuilder struct {
 
 // Generate whole shell script for building a PushEvent.
 // Returns a shell scripts, and error
-func (b *Builder) generatePushEventBuildCommand(ev *PushEvent) (cmd []byte, err error) {
+func (b *Builder) generatePushEventBuildCommand(ev PushEvent) (cmd []byte, err error) {
 	cb, err := b.newCommandBuilder()
 	if err != nil {
 		return

@@ -12,9 +12,9 @@ import (
 
 // Server is a github webhook server
 type githubHook struct {
-	Secret       string           // Option secret key for authenticating via HMAC
-	IgnoreTags   bool             // If set to false, also execute command if tag is pushed
-	Events       chan interface{} // Channel of events.
+	Secret       string             // Option secret key for authenticating via HMAC
+	IgnoreTags   bool               // If set to false, also execute command if tag is pushed
+	Events       chan<- interface{} // Channel of events.
 	EventHandler map[string]func(*jsontree.JsonTree) (interface{}, error)
 }
 
