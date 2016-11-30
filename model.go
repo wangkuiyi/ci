@@ -22,12 +22,6 @@ type PushEvent struct {
 	CloneURL string
 }
 
-// BranchName Get branch name from PushEvent. Used for template
-func (ev PushEvent) BranchName() string {
-	// TODO(helin): this seems hacky, remove
-	return ev.Ref[11:]
-}
-
 // openCIDB opens database.
 func openCIDB(username string, passwd string, database string) (db *CIDB, err error) {
 	sdb, err := sql.Open("postgres", fmt.Sprintf("postgres://%s:%s@localhost/%s?sslmode=disable",
