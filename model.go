@@ -24,7 +24,8 @@ type PushEvent struct {
 }
 
 // BranchName Get branch name from PushEvent. Used for template
-func (ev *PushEvent) BranchName() string {
+func (ev PushEvent) BranchName() string {
+	// TODO(helin): this seems hacky, remove
 	return ev.Ref[11:]
 }
 
@@ -49,7 +50,7 @@ func (db *CIDB) Close() {
 }
 
 // AddPushEvent insert a PushEvent into database.
-func (db *CIDB) AddPushEvent(event *PushEvent) (buildID int64, err error) {
+func (db *CIDB) AddPushEvent(event PushEvent) (buildID int64, err error) {
 	addPushEventStmt, err := db.DB.Prepare("select new_push_event($1, $2, $3)")
 	if err != nil {
 		return
@@ -65,7 +66,7 @@ func (db *CIDB) AddPushEvent(event *PushEvent) (buildID int64, err error) {
 }
 
 // removePushEvent Only used for unittest.
-func (db *CIDB) removePushEvent(event *PushEvent, buildID int64) (err error) {
+func (db *CIDB) removePushEvent(event PushEvent, buildID int64) (err error) {
 	_, err = db.DB.Exec("DELETE FROM PushBuilds WHERE push_head = $1", event.Head)
 	if err != nil {
 		return
@@ -79,8 +80,8 @@ func (db *CIDB) removePushEvent(event *PushEvent, buildID int64) (err error) {
 }
 
 // GetPushEventByBuildID Get PushEvent From Database
-func (db *CIDB) GetPushEventByBuildID(buildID int64) (pushEvent *PushEvent, err error) {
-	pushEvent = &PushEvent{}
+func (db *CIDB) GetPushEventByBuildID(buildID int64) (pushEvent PushEvent, err error) {
+	pushEvent = PushEvent{}
 	err = db.DB.QueryRow("SELECT pe.head, pe.ref, pe.clone_url FROM PushEvents AS pe JOIN PushBuilds as pb"+
 		" ON pe.head = pb.push_head WHERE pb.build_id = $1 LIMIT 1", buildID).Scan(
 		&pushEvent.Head, &pushEvent.Ref, &pushEvent.CloneURL)
@@ -284,9 +285,9 @@ OFFSET $3
 }
 
 // GetPushEventByHead return the push event object by head sha1
-func (db *CIDB) GetPushEventByHead(sha string) (event *PushEvent, err error) {
+func (db *CIDB) GetPushEventByHead(sha string) (event PushEvent, err error) {
 	stmt := `SELECT head, ref, clone_url FROM PushEvents WHERE head = $1 LIMIT 1`
-	event = &PushEvent{}
+	event = PushEvent{}
 	err = db.DB.QueryRow(stmt, sha).Scan(&event.Head, &event.Ref, &event.CloneURL)
 	return
 }

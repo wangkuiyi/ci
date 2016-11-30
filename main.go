@@ -18,16 +18,17 @@ func main() {
 	builder.Start()
 	defer builder.Close()
 
-	serv := newHTTPServer(opts, db, github)
+	eventQueue := make(chan interface{})
+	serv := newHTTPServer(opts, db, github, eventQueue)
 	go func() {
 		checkNoErr(serv.ListenAndServe())
 	}()
 
-	for ev := range serv.EventQueue {
+	for ev := range eventQueue {
 		switch ev.(type) {
-		case *PushEvent:
+		case PushEvent:
 			{
-				event := ev.(*PushEvent)
+				event := ev.(PushEvent)
 				bid, err := db.AddPushEvent(event) // add event to db
 				checkNoErr(err)
 				buildChan <- bid

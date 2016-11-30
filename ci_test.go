@@ -60,11 +60,11 @@ func TestAddPushEvent(t *testing.T) {
 	builder, err := newBuilder(jobChan, opts, DB, nil)
 	checkNoErr(err)
 
-	bid, err := DB.AddPushEvent(&ev)
+	bid, err := DB.AddPushEvent(ev)
 	assert.NoError(t, err)
 	getEv, err := DB.GetPushEventByBuildID(bid)
 	assert.NoError(t, err)
-	assert.Equal(t, ev, *getEv)
+	assert.Equal(t, ev, getEv)
 	cmd, err := builder.generatePushEventBuildCommand(&ev)
 	assert.NoError(t, err)
 	assert.Equal(t, string(cmd[:]), BuildCommand)
@@ -99,7 +99,7 @@ func TestAddPushEvent(t *testing.T) {
 		log.Println(output.Content)
 	}
 
-	assert.NoError(t, DB.removePushEvent(&ev, bid))
+	assert.NoError(t, DB.removePushEvent(ev, bid))
 }
 
 func TestMain(m *testing.M) {

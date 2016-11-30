@@ -2,22 +2,17 @@
 package main
 
 import (
+	"io/ioutil"
 	"net/http"
-	"os"
 
 	"github.com/bmatsuo/go-jsontree"
-	"github.com/reyoung/github_hook"
 
 	"fmt"
 	"html/template"
 
-	"path/filepath"
-
 	"strings"
 
 	"log"
-
-	"errors"
 
 	"path"
 
@@ -32,9 +27,8 @@ import (
 
 // HTTPServer for webhook, website.
 type HTTPServer struct {
-	EventQueue chan interface{}    // Channel for git hub web hook event
-	server     *github_hook.Server // Github Webhook handler.
-	addr       string              // http addr.
+	server *githubHook // Github Webhook handler.
+	addr   string      // http addr.
 
 	router *mux.Router      // Router
 	n      *negroni.Negroni // A http middleware framework
@@ -53,25 +47,19 @@ type Renderer struct {
 
 func newRenderer(opts *Options) *Renderer {
 	tmpls := make(map[string]*template.Template)
-	tmplDir := opts.HTTP.TemplateDir
-	if strings.HasPrefix(opts.HTTP.TemplateDir, "./") {
-		tmplDir = tmplDir[len("./"):]
+	files, err := ioutil.ReadDir(opts.HTTP.TemplateDir)
+	if err != nil {
+		panic(err)
 	}
-	checkNoErr(filepath.Walk(tmplDir, func(p string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			if strings.HasSuffix(p, ".gohtml") && !strings.HasSuffix(p, "base.gohtml") {
-				tmpl := template.Must(template.ParseFiles(fmt.Sprintf("%sbase.gohtml", opts.HTTP.TemplateDir), p))
-				if strings.HasPrefix(p, tmplDir) {
-					p = p[len(tmplDir):]
-					log.Println("Loading template ", p)
-					tmpls[p] = tmpl
-				} else {
-					return errors.New(fmt.Sprint("Error when loading template ", p))
-				}
+	for _, f := range files {
+		if !f.IsDir() {
+			name := f.Name()
+			if strings.HasSuffix(name, ".gohtml") && !strings.HasSuffix(name, "base.gohtml") {
+				tmpl := template.Must(template.ParseFiles(path.Join(opts.HTTP.TemplateDir, "base.gohtml"), path.Join(opts.HTTP.TemplateDir, name)))
+				tmpls[name] = tmpl
 			}
 		}
-		return nil
-	}))
+	}
 
 	return &Renderer{
 		tmpls: tmpls,
@@ -104,26 +92,25 @@ func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[s
 	}
 }
 
-func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI) *HTTPServer {
+func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI, eventQueue chan<- interface{}) *HTTPServer {
 	serv := &HTTPServer{
-		EventQueue: nil,
-		server:     github_hook.NewServer(),
-		addr:       opts.HTTP.Addr,
-		router:     mux.NewRouter(),
-		n:          negroni.New(),
-		db:         db,
-		renderer:   newRenderer(opts),
-		github:     github,
+		server: &githubHook{
+			Events:       eventQueue,
+			Secret:       opts.HTTP.Secret,
+			EventHandler: make(map[string]func(*jsontree.JsonTree) (interface{}, error)),
+		},
+		addr:     opts.HTTP.Addr,
+		router:   mux.NewRouter(),
+		n:        negroni.New(),
+		db:       db,
+		renderer: newRenderer(opts),
+		github:   github,
 	}
-	serv.EventQueue = serv.server.Events
-	serv.server.Path = opts.HTTP.CIUri
-	serv.server.Secret = opts.HTTP.Secret
-	serv.router.HandleFunc(serv.server.Path, serv.server.ServeHTTP)
-	serv.server.EventHandler = make(map[string]func(*jsontree.JsonTree) (interface{}, error))
 	serv.server.EventHandler["push"] = onPushEvent
 	serv.n.Use(negroni.NewRecovery())
 	serv.n.Use(negroni.NewLogger())
 	serv.n.Use(serv.renderer)
+	serv.router.HandleFunc(opts.HTTP.CIUri, serv.server.ServeHTTP)
 	serv.router.HandleFunc("/", serv.homeHandler).Methods("Get").Name("home")
 	serv.router.HandleFunc("/status/{sha:[0-9a-f]+}", serv.statusHandler).Methods("Get").Name("status")
 	serv.router.HandleFunc("/builds/{buildID:[0-9]+}", serv.buildsHandler).Methods("Get").Name("builds")
@@ -138,19 +125,19 @@ func (httpServ *HTTPServer) ListenAndServe() error {
 }
 
 // onPushEvent Webhook. https://developer.github.com/v3/activity/events/types/#pushevent
-func onPushEvent(request *jsontree.JsonTree) (ev interface{}, err error) {
-	event := &PushEvent{}
-	ev = event
+func onPushEvent(request *jsontree.JsonTree) (interface{}, error) {
+	event := PushEvent{}
+	var err error
 	event.Ref, err = request.Get("ref").String()
 	if err != nil {
-		return
+		return nil, err
 	}
 	event.CloneURL, err = request.Get("repository").Get("clone_url").String()
 	if err != nil {
-		return
+		return nil, err
 	}
 	event.Head, err = request.Get("head_commit").Get("id").String()
-	return
+	return event, nil
 }
 
 func (httpServ *HTTPServer) render(res http.ResponseWriter, req *http.Request, name string, data map[string]interface{}) {

@@ -4,11 +4,12 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path"
+	"strconv"
 	"sync"
 	"syscall"
 	"text/template"
@@ -35,7 +36,7 @@ type Builder struct {
 // It will create the building directory for each go routine. The building dir can be configured in configuration file.
 func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) (builder *Builder, err error) {
 	for i := 0; i < opts.Build.Concurrent; i++ {
-		path := fmt.Sprintf("%s%c%d", opts.Build.Dir, os.PathSeparator, i)
+		path := path.Join(opts.Build.Dir, strconv.Itoa(i))
 		err = os.MkdirAll(path, 0755)
 		if err != nil {
 			return
@@ -68,16 +69,15 @@ func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) 
 // The entry for each build goroutine.
 // Param id is the go routine id, start from 0.
 func (b *Builder) builderMain(id int) {
-	path := fmt.Sprintf("%s%c%d", b.opt.Dir, os.PathSeparator, id)
+	path := path.Join(b.opt.Dir, strconv.Itoa(id))
 	var bid int64
 	var ok bool
 	for {
 		bid, ok = <-b.jobChan
 		if !ok {
 			break
-		} else {
-			b.build(bid, path)
 		}
+		b.build(bid, path)
 	}
 	b.exitGroup.Done()
 }
@@ -101,9 +101,15 @@ func (b *Builder) build(bid int64, path string) {
 			checkNoErr(err)
 		}
 	}()
-	cmd, err := b.generatePushEventBuildCommand(ev)
+
+	var buffer bytes.Buffer
+	err = b.bootstrapTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
-	channels, err := b.execCommand(path, cmd)
+	err = b.pushEventCloneTpl.Execute(&buffer, ev)
+	checkNoErr(err)
+	err = b.execTpl.Execute(&buffer, b.opt)
+	checkNoErr(err)
+	channels, err := b.execCommand(path, buffer.Bytes())
 	checkNoErr(err)
 	execCommand := func() bool {
 		exit := false
@@ -143,9 +149,11 @@ func (b *Builder) build(bid int64, path string) {
 		err = b.github.CreateStatus(ev.Head, GithubFailure)
 		checkNoErr(err)
 	}
-	cmd, err = b.generateCleanCommand()
+
+	var buf bytes.Buffer
+	err = b.cleanTpl.Execute(&buf, b.opt)
 	checkNoErr(err)
-	channels, err = b.execCommand(path, cmd)
+	channels, err = b.execCommand(path, buf.Bytes())
 	checkNoErr(err)
 	b.db.AppendBuildOutput(bid, "Exec Clean Commands", syscall.Stderr)
 	execCommand()
@@ -163,48 +171,6 @@ func (b *Builder) Start() {
 func (b *Builder) Close() {
 	close(b.jobChan)
 	b.exitGroup.Wait()
-}
-
-// Internal Object for generating build scripts.
-type commandBuilder struct {
-	buffer bytes.Buffer
-}
-
-// Generate whole shell script for building a PushEvent.
-// Returns a shell scripts, and error
-func (b *Builder) generatePushEventBuildCommand(ev *PushEvent) (cmd []byte, err error) {
-	cb, err := b.newCommandBuilder()
-	if err != nil {
-		return
-	}
-	err = b.pushEventCloneTpl.Execute(&cb.buffer, ev)
-	if err != nil {
-		return
-	}
-	cmd, err = b.toCommand(cb)
-	return
-}
-
-// Generate clean script.
-func (b *Builder) generateCleanCommand() (cmd []byte, err error) {
-	buf := bytes.NewBuffer([]byte{})
-	err = b.cleanTpl.Execute(buf, b.opt)
-	cmd = buf.Bytes()
-	return
-}
-
-// Add execute command to CommandBuilder then generate command.
-func (b *Builder) toCommand(cb *commandBuilder) (cmd []byte, err error) {
-	err = b.execTpl.Execute(&cb.buffer, b.opt)
-	cmd = cb.buffer.Bytes()
-	return
-}
-
-// New Command Builder, also add bootstrap command to builder.
-func (b *Builder) newCommandBuilder() (cb *commandBuilder, err error) {
-	cb = &commandBuilder{}
-	err = b.bootstrapTpl.Execute(&cb.buffer, b.opt)
-	return
 }
 
 // CommandExecChannels is returned by execute command.
@@ -227,7 +193,7 @@ func reader2chan(r io.Reader, ch chan string, errs chan error) {
 }
 
 func (b *Builder) execCommand(basepath string, cmd []byte) (channels *CommandExecChannels, err error) {
-	path := fmt.Sprintf("%s%crun", basepath, os.PathSeparator)
+	path := path.Join(basepath, "run")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0700)
 	if err != nil {
 		return

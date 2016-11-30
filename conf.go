@@ -70,6 +70,7 @@ type Options struct {
 
 // Create new options with default values.
 func newOptions() *Options {
+	// TODO(helin): at least everything other than scripts should be in config yaml (transparent to user)
 	return &Options{
 		HTTP: HTTPOption{
 			Addr:        ":8000",
