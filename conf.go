@@ -99,6 +99,7 @@ set -e
 `,
 			PushEventCloneTpl: `
 set -x
+cd {{.BuildPath}}
 git clone --branch={{.BranchName}} --depth=50 {{.CloneURL}} repo
 cd repo
 git checkout -qf {{.Head}}
@@ -106,13 +107,13 @@ git checkout -qf {{.Head}}
 			ExecuteTpl: `
 set +x
 if [ -f {{.Filename}} ]; then
-	{{.Filename}}
+	source {{.Filename}}
 else
 	echo "{{.Filename}} not found, it seems the ci script is not configured."
 fi
 `,
 			CleanTpl: `#!/bin/bash
-rm -rf repo
+rm -rf {{.BuildPath}}/*
 `,
 			Filename: "./ci.sh",
 		},
