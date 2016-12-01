@@ -8,18 +8,12 @@ import (
 	"syscall"
 
 	_ "github.com/lib/pq"
+	"github.com/wangkuiyi/ci/webhook"
 )
 
 // CIDB is the database api for ci system.
 type CIDB struct {
 	DB *sql.DB
-}
-
-// PushEvent that ci server actually used.
-type PushEvent struct {
-	Ref      string
-	Head     string
-	CloneURL string
 }
 
 // openCIDB opens database.
@@ -43,13 +37,13 @@ func (db *CIDB) Close() {
 }
 
 // AddPushEvent insert a PushEvent into database.
-func (db *CIDB) AddPushEvent(event PushEvent) (buildID int64, err error) {
+func (db *CIDB) AddPushEvent(event webhook.PushEvent) (buildID int64, err error) {
 	addPushEventStmt, err := db.DB.Prepare("select new_push_event($1, $2, $3)")
 	if err != nil {
 		return
 	}
 
-	err = addPushEventStmt.QueryRow(event.Head, event.Ref, event.CloneURL).Scan(&buildID)
+	err = addPushEventStmt.QueryRow(event.HeadCommit.ID, event.Ref, event.Repository.CloneURL).Scan(&buildID)
 	if err != nil {
 		return
 	}
@@ -59,12 +53,12 @@ func (db *CIDB) AddPushEvent(event PushEvent) (buildID int64, err error) {
 }
 
 // removePushEvent Only used for unittest.
-func (db *CIDB) removePushEvent(event PushEvent, buildID int64) (err error) {
-	_, err = db.DB.Exec("DELETE FROM PushBuilds WHERE push_head = $1", event.Head)
+func (db *CIDB) removePushEvent(event webhook.PushEvent, buildID int64) (err error) {
+	_, err = db.DB.Exec("DELETE FROM PushBuilds WHERE push_head = $1", event.HeadCommit.ID)
 	if err != nil {
 		return
 	}
-	_, err = db.DB.Exec("DELETE FROM PushEvents WHERE head = $1", event.Head)
+	_, err = db.DB.Exec("DELETE FROM PushEvents WHERE head = $1", event.HeadCommit.ID)
 	if err != nil {
 		return
 	}
@@ -73,11 +67,11 @@ func (db *CIDB) removePushEvent(event PushEvent, buildID int64) (err error) {
 }
 
 // GetPushEventByBuildID Get PushEvent From Database
-func (db *CIDB) GetPushEventByBuildID(buildID int64) (pushEvent PushEvent, err error) {
-	pushEvent = PushEvent{}
+func (db *CIDB) GetPushEventByBuildID(buildID int64) (pushEvent webhook.PushEvent, err error) {
+	pushEvent = webhook.PushEvent{}
 	err = db.DB.QueryRow("SELECT pe.head, pe.ref, pe.clone_url FROM PushEvents AS pe JOIN PushBuilds as pb"+
 		" ON pe.head = pb.push_head WHERE pb.build_id = $1 LIMIT 1", buildID).Scan(
-		&pushEvent.Head, &pushEvent.Ref, &pushEvent.CloneURL)
+		&pushEvent.HeadCommit.ID, &pushEvent.Ref, &pushEvent.Repository.CloneURL)
 	return
 }
 
@@ -244,10 +238,10 @@ OFFSET $3
 }
 
 // GetPushEventByHead return the push event object by head sha1
-func (db *CIDB) GetPushEventByHead(sha string) (event PushEvent, err error) {
+func (db *CIDB) GetPushEventByHead(sha string) (event webhook.PushEvent, err error) {
 	stmt := `SELECT head, ref, clone_url FROM PushEvents WHERE head = $1 LIMIT 1`
-	event = PushEvent{}
-	err = db.DB.QueryRow(stmt, sha).Scan(&event.Head, &event.Ref, &event.CloneURL)
+	event = webhook.PushEvent{}
+	err = db.DB.QueryRow(stmt, sha).Scan(&event.HeadCommit.ID, &event.Ref, &event.Repository.CloneURL)
 	return
 }
 

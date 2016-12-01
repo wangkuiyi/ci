@@ -1,6 +1,10 @@
 package main
 
-import "log"
+import (
+	"log"
+
+	"github.com/wangkuiyi/ci/webhook"
+)
 
 func main() {
 	opts := ParseArgs()
@@ -25,14 +29,13 @@ func main() {
 	}()
 
 	for ev := range eventQueue {
-		switch ev.(type) {
-		case PushEvent:
-			{
-				event := ev.(PushEvent)
-				bid, err := db.AddPushEvent(event) // add event to db
-				checkNoErr(err)
-				buildChan <- bid
-			}
+		switch e := ev.(type) {
+		case webhook.PushEvent:
+			bid, err := db.AddPushEvent(e)
+			checkNoErr(err)
+			buildChan <- bid
+		case webhook.PullRequestEvent:
+			// TODO(helin)
 		}
 	}
 }
