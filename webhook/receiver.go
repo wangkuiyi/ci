@@ -21,7 +21,7 @@ type PushEvent struct {
 type PullRequestEvent struct {
 	Action     string `json:"action"`
 	PullRequst struct {
-		ID string `json:"id"`
+		ID int `json:"id"`
 	} `json:"pull_request"`
 	Repo struct {
 		CloneURL string `json:"clone_url"`

@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"sync"
 	"text/template"
-
-	"github.com/wangkuiyi/ci/webhook"
 )
 
 // Builder will start multiple go routine to executing ci scripts for each builds.
@@ -105,9 +103,11 @@ func (b *Builder) build(bid int64, path string) {
 	err = b.bootstrapTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
 	err = b.pushEventCloneTpl.Execute(&buffer, struct {
-		webhook.PushEvent
+		CloneURL  string
+		Ref       string
+		Head      string
 		BuildPath string
-	}{PushEvent: ev, BuildPath: path})
+	}{CloneURL: ev.Repository.CloneURL, Ref: ev.Ref, Head: ev.HeadCommit.ID, BuildPath: path})
 	checkNoErr(err)
 	err = b.execTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)

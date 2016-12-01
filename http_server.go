@@ -164,8 +164,9 @@ func (httpServ *HTTPServer) statusHandler(res http.ResponseWriter, req *http.Req
 	ids, err := httpServ.db.GetBuildIDFromPushEventHead(sha)
 	checkNoErr(err)
 	httpServ.render(res, req, "status", map[string]interface{}{
-		"Event": event,
-		"Ids":   ids,
+		"Head": event.HeadCommit.ID,
+		"Ref":  event.Ref,
+		"Ids":  ids,
 	})
 }
 
@@ -176,8 +177,9 @@ func (httpServ *HTTPServer) buildsHandler(res http.ResponseWriter, req *http.Req
 	event, err := httpServ.db.GetPushEventByBuildID(bid)
 	checkNoErr(err)
 	httpServ.render(res, req, "builds", map[string]interface{}{
-		"Event": event,
-		"Id":    bid,
+		"Head": event.HeadCommit.ID,
+		"Ref":  event.Ref,
+		"Id":   bid,
 	})
 }
 
