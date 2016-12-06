@@ -83,7 +83,7 @@ func (b *Builder) builderMain(id int) {
 func (b *Builder) build(bid int64, path string) {
 	ev, err := b.db.GetPushEventByBuildID(bid)
 	checkNoErr(err)
-	err = b.github.CreateStatus(ev.Head, GithubPending)
+	err = b.github.CreateStatus(ev.HeadCommit.ID, GithubPending)
 	checkNoErr(err)
 	err = b.db.UpdateBuildStatus(bid, BuildRunning)
 	checkNoErr(err)
@@ -92,7 +92,7 @@ func (b *Builder) build(bid int64, path string) {
 	defer func() {
 		if r := recover(); r != nil {
 			// CI System Error, set github status & database to error
-			err := b.github.CreateStatus(ev.Head, GithubError)
+			err := b.github.CreateStatus(ev.HeadCommit.ID, GithubError)
 			checkNoErr(err)
 			err = b.db.UpdateBuildStatus(bid, BuildError)
 			checkNoErr(err)
@@ -103,9 +103,11 @@ func (b *Builder) build(bid int64, path string) {
 	err = b.bootstrapTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
 	err = b.pushEventCloneTpl.Execute(&buffer, struct {
-		PushEvent
+		CloneURL  string
+		Ref       string
+		Head      string
 		BuildPath string
-	}{PushEvent: ev, BuildPath: path})
+	}{CloneURL: ev.Repository.CloneURL, Ref: ev.Ref, Head: ev.HeadCommit.ID, BuildPath: path})
 	checkNoErr(err)
 	err = b.execTpl.Execute(&buffer, b.opt)
 	checkNoErr(err)
@@ -126,14 +128,14 @@ func (b *Builder) build(bid int64, path string) {
 		checkNoErr(err)
 		err = b.db.UpdateBuildStatus(bid, BuildFailed)
 		checkNoErr(err)
-		err = b.github.CreateStatus(ev.Head, GithubFailure)
+		err = b.github.CreateStatus(ev.HeadCommit.ID, GithubFailure)
 		checkNoErr(err)
 	} else {
 		err = b.db.AppendBuildOutput(bid, "Exit 0", false)
 		checkNoErr(err)
 		err = b.db.UpdateBuildStatus(bid, BuildSuccess)
 		checkNoErr(err)
-		err = b.github.CreateStatus(ev.Head, GithubSuccess)
+		err = b.github.CreateStatus(ev.HeadCommit.ID, GithubSuccess)
 		checkNoErr(err)
 	}
 

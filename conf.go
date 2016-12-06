@@ -100,9 +100,10 @@ set -e
 			PushEventCloneTpl: `
 set -x
 cd {{.BuildPath}}
-git clone --branch={{.BranchName}} --depth=50 {{.CloneURL}} repo
+git clone --depth 1 {{.CloneURL}} repo
 cd repo
-git checkout -qf {{.Head}}
+git fetch origin {{.Ref}}
+git checkout -qf {{.Ref}}
 `,
 			ExecuteTpl: `
 set +x

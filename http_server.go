@@ -5,8 +5,6 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/bmatsuo/go-jsontree"
-
 	"fmt"
 	"html/template"
 
@@ -23,12 +21,12 @@ import (
 	"github.com/gorilla/context"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
+	"github.com/wangkuiyi/ci/webhook"
 )
 
 // HTTPServer for webhook, website.
 type HTTPServer struct {
-	server *githubHook // Github Webhook handler.
-	addr   string      // http addr.
+	addr string // http addr.
 
 	router *mux.Router      // Router
 	n      *negroni.Negroni // A http middleware framework
@@ -94,11 +92,6 @@ func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[s
 
 func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI, eventQueue chan<- interface{}) *HTTPServer {
 	serv := &HTTPServer{
-		server: &githubHook{
-			Events:       eventQueue,
-			Secret:       opts.HTTP.Secret,
-			EventHandler: make(map[string]func(*jsontree.JsonTree) (interface{}, error)),
-		},
 		addr:     opts.HTTP.Addr,
 		router:   mux.NewRouter(),
 		n:        negroni.New(),
@@ -106,11 +99,11 @@ func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI, eventQueue chan<-
 		renderer: newRenderer(opts),
 		github:   github,
 	}
-	serv.server.EventHandler["push"] = onPushEvent
+	hook := &webhook.Receiver{Ch: eventQueue}
 	serv.n.Use(negroni.NewRecovery())
 	serv.n.Use(negroni.NewLogger())
 	serv.n.Use(serv.renderer)
-	serv.router.HandleFunc(opts.HTTP.CIUri, serv.server.ServeHTTP)
+	serv.router.HandleFunc(opts.HTTP.CIUri, hook.ServeHTTP)
 	serv.router.HandleFunc("/", serv.homeHandler).Methods("Get").Name("home")
 	serv.router.HandleFunc("/status/{sha:[0-9a-f]+}", serv.statusHandler).Methods("Get").Name("status")
 	serv.router.HandleFunc("/builds/{buildID:[0-9]+}", serv.buildsHandler).Methods("Get").Name("builds")
@@ -122,22 +115,6 @@ func newHTTPServer(opts *Options, db *CIDB, github *GithubAPI, eventQueue chan<-
 // ListenAndServe by using configuration.
 func (httpServ *HTTPServer) ListenAndServe() error {
 	return http.ListenAndServe(httpServ.addr, httpServ.n)
-}
-
-// onPushEvent Webhook. https://developer.github.com/v3/activity/events/types/#pushevent
-func onPushEvent(request *jsontree.JsonTree) (interface{}, error) {
-	event := PushEvent{}
-	var err error
-	event.Ref, err = request.Get("ref").String()
-	if err != nil {
-		return nil, err
-	}
-	event.CloneURL, err = request.Get("repository").Get("clone_url").String()
-	if err != nil {
-		return nil, err
-	}
-	event.Head, err = request.Get("head_commit").Get("id").String()
-	return event, nil
 }
 
 func (httpServ *HTTPServer) render(res http.ResponseWriter, req *http.Request, name string, data map[string]interface{}) {
@@ -187,8 +164,9 @@ func (httpServ *HTTPServer) statusHandler(res http.ResponseWriter, req *http.Req
 	ids, err := httpServ.db.GetBuildIDFromPushEventHead(sha)
 	checkNoErr(err)
 	httpServ.render(res, req, "status", map[string]interface{}{
-		"Event": event,
-		"Ids":   ids,
+		"Head": event.HeadCommit.ID,
+		"Ref":  event.Ref,
+		"Ids":  ids,
 	})
 }
 
@@ -199,8 +177,9 @@ func (httpServ *HTTPServer) buildsHandler(res http.ResponseWriter, req *http.Req
 	event, err := httpServ.db.GetPushEventByBuildID(bid)
 	checkNoErr(err)
 	httpServ.render(res, req, "builds", map[string]interface{}{
-		"Event": event,
-		"Id":    bid,
+		"Head": event.HeadCommit.ID,
+		"Ref":  event.Ref,
+		"Id":   bid,
 	})
 }
 
