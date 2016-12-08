@@ -19,23 +19,31 @@
 <script>
 $(function(){
     var bid = {{ .Id }}
-    var lineId = 1
+    var lineId = 0
     var lineLimit = 100
     var outputPanel = $("#output")
     var appendOutput= function(content, channel) {
-        if (channel == 1) {
-             outputPanel.append("<a class=\"list-group-item list-group-item-info\" href=\"#" + lineId + "\">" + content + "</a>")
-        } else {
+        if (channel == 0) {
+            // stdout
+            outputPanel.append("<a class=\"list-group-item list-group-item-success\" href=\"#" + lineId + "\">" + content + "</a>")
+        } else if (channel == 1) {
+            // stderr
             outputPanel.append("<a class=\"list-group-item list-group-item-danger\" href=\"#"+ lineId + "\">"+ content + "</a>")
+        } else if (channel == 2) {
+            // ci info
+            outputPanel.append("<a class=\"list-group-item list-group-item-info\" href=\"#"+ lineId + "\">"+ content + "</a>")
+        } else {
+            // ci error
+            outputPanel.append("<a class=\"list-group-item list-group-item-warning\" href=\"#"+ lineId + "\">"+ content + "</a>")
         }
         lineId += 1
     }
 
     var requestLine = function () {
         $.getJSON("/build_output/", {
-            limit: lineLimit,
-            offset: lineId,
-            id: bid
+            id: bid,
+            start: lineId,
+            end: lineId+lineLimit,
         }, function(data) {
             for(var i in data.Outputs) {
                 var opt = data.Outputs[i]

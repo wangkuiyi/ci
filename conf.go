@@ -1,15 +1,6 @@
 // The config parsers. Parse the command line option --config, and read the configuration file.
 package main
 
-import (
-	"flag"
-	"fmt"
-	"io/ioutil"
-	"os"
-
-	"gopkg.in/yaml.v2"
-)
-
 // HTTPOption used for HTTP Server and Github Webhook
 type HTTPOption struct {
 	Addr   string // http address
@@ -103,7 +94,7 @@ cd {{.BuildPath}}
 git clone --depth 1 {{.CloneURL}} repo
 cd repo
 git fetch origin {{.Ref}}
-git checkout -qf {{.Ref}}
+git checkout -qf {{.Head}}
 `,
 			ExecuteTpl: `
 set +x
@@ -128,23 +119,3 @@ rm -rf {{.BuildPath}}/*
 const usage string = `Usage %s [OPTIONS]
 Options:
 `
-
-// ParseArgs is used for parsing command line argument, and read the configuration file, then return the Options
-func ParseArgs() (opts *Options) {
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, usage, os.Args[0])
-		flag.PrintDefaults()
-	}
-
-	fn := flag.String("config", "", "Configuration File")
-	flag.Parse()
-
-	if *fn != "" {
-		opts = newOptions()
-		content, err := ioutil.ReadFile(*fn)
-		checkNoErr(err)
-		err = yaml.Unmarshal(content, opts)
-		checkNoErr(err)
-	}
-	return
-}
