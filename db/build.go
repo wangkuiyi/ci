@@ -5,8 +5,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-
-	"github.com/boltdb/bolt"
 )
 
 // LineType is the type of a line in output
@@ -53,7 +51,7 @@ const (
 // Build represents a build event in database
 // the coresponding value of public field in database will never change
 type Build struct {
-	db *bolt.DB
+	db *DB
 
 	T         BuildType
 	Ref       string
@@ -64,16 +62,10 @@ type Build struct {
 
 // SetStatus sets build status
 func (b *Build) SetStatus(s BuildStatus) error {
-	err := b.db.Update(func(tx *bolt.Tx) error {
+	err := b.db.update(func(tx *tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(statusBucket)
-		if err != nil {
-			return err
-		}
-		err = bucket.Put(itob(b.ID), []byte(s))
-		if err != nil {
-			return err
-		}
-
+		tx.must(err)
+		tx.must(bucket.Put(itob(b.ID), []byte(s)))
 		if !(s == BuildFailed || s == BuildSuccess || s == BuildError) {
 			return nil
 		}
@@ -83,8 +75,7 @@ func (b *Build) SetStatus(s BuildStatus) error {
 			return nil
 		}
 
-		err = bucket.Delete(itob(b.ID))
-		return err
+		return bucket.Delete(itob(b.ID))
 	})
 	return err
 }
@@ -92,7 +83,7 @@ func (b *Build) SetStatus(s BuildStatus) error {
 // Status returns build status
 func (b *Build) Status() (BuildStatus, error) {
 	var stat BuildStatus
-	err := b.db.View(func(tx *bolt.Tx) error {
+	err := b.db.view(func(tx *tx) error {
 		bucket := tx.Bucket(statusBucket)
 		if bucket == nil {
 			return errors.New("statusBucket not exist")
@@ -123,21 +114,14 @@ func (b *Build) AppendOutput(o OutputLine) error {
 		return err
 	}
 
-	err = b.db.Update(func(tx *bolt.Tx) error {
+	err = b.db.update(func(tx *tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(outputBucket)
-		if err != nil {
-			return err
-		}
+		tx.must(err)
 		bucket, err = bucket.CreateBucketIfNotExists(itob(b.ID))
-		if err != nil {
-			return err
-		}
+		tx.must(err)
 		id, err := bucket.NextSequence()
-		if err != nil {
-			return err
-		}
-		err = bucket.Put(itob(id), buf.Bytes())
-		return err
+		tx.must(err)
+		return bucket.Put(itob(id), buf.Bytes())
 	})
 	return err
 }
@@ -163,7 +147,7 @@ func (b *Build) Output(start, end int) ([]OutputLine, error) {
 	start++
 
 	var out []OutputLine
-	err = b.db.View(func(tx *bolt.Tx) error {
+	err = b.db.view(func(tx *tx) error {
 		bucket := tx.Bucket(outputBucket)
 		if bucket == nil {
 			// treat as no output
@@ -186,10 +170,7 @@ func (b *Build) Output(start, end int) ([]OutputLine, error) {
 		for ; (diff == -1 || count < diff) && k != nil; k, v = c.Next() {
 			count++
 			var o OutputLine
-			err := gob.NewDecoder(bytes.NewReader(v)).Decode(&o)
-			if err != nil {
-				return err
-			}
+			tx.must(gob.NewDecoder(bytes.NewReader(v)).Decode(&o))
 			out = append(out, o)
 		}
 		return nil
