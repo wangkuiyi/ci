@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
+	"github.com/topicai/candy"
 )
 
 var (
@@ -65,98 +66,81 @@ func btoi(b []byte) uint64 {
 	return binary.BigEndian.Uint64(b)
 }
 
-func handle(f func(*bolt.Tx, func(error)), t *bolt.Tx) (err error) {
-	type txErr error
-	defer func() {
-		if r := recover(); r != nil {
-			switch e := r.(type) {
-			case txErr:
-				err = error(e)
-			default:
-				panic(r)
+func makeSafeHandler(f func(*bolt.Tx) error) func(*bolt.Tx) error {
+	return func(t *bolt.Tx) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				switch e := r.(type) {
+				case error:
+					err = e
+				default:
+					err = fmt.Errorf("recovered panic: %v", e)
+				}
 			}
-		}
-	}()
-	must := func(err error) {
-		if err != nil {
-			panic(txErr(err))
-		}
+		}()
+		return f(t)
 	}
-	f(t, must)
-	return nil
-}
-
-func (d *DB) view(f func(*bolt.Tx, func(error))) error {
-	return d.db.View(func(t *bolt.Tx) error {
-		return handle(f, t)
-	})
-}
-
-func (d *DB) update(f func(*bolt.Tx, func(error))) error {
-	return d.db.Update(func(t *bolt.Tx) error {
-		return handle(f, t)
-	})
 }
 
 // CreateBuild creats a build event
 func (d *DB) CreateBuild(t BuildType, cloneURL, ref, commitSHA string) (Build, error) {
 	build := Build{T: t, CloneURL: cloneURL, Ref: ref, CommitSHA: commitSHA}
 	var buildID uint64
-	err := d.update(func(tx *bolt.Tx, must func(error)) {
+	err := d.db.Update(makeSafeHandler(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(buildBucket)
-		must(err)
+		candy.Must(err)
 		buildID, err = b.NextSequence()
-		must(err)
+		candy.Must(err)
 		build.ID = buildID
 		var buf bytes.Buffer
 		enc := gob.NewEncoder(&buf)
-		must(enc.Encode(build))
-		must(b.Put(itob(buildID), buf.Bytes()))
+		candy.Must(enc.Encode(build))
+		candy.Must(b.Put(itob(buildID), buf.Bytes()))
 		b, err = tx.CreateBucketIfNotExists(shaBucket)
-		must(err)
+		candy.Must(err)
 		b, err = b.CreateBucketIfNotExists([]byte(build.CommitSHA))
-		must(err)
+		candy.Must(err)
 		commitID, err := b.NextSequence()
-		must(err)
-		must(b.Put(itob(commitID), itob(build.ID)))
+		candy.Must(err)
+		candy.Must(b.Put(itob(commitID), itob(build.ID)))
 		b, err = tx.CreateBucketIfNotExists(refBucket)
-		must(err)
+		candy.Must(err)
 		b, err = b.CreateBucketIfNotExists(itob(uint64(build.T)))
-		must(err)
+		candy.Must(err)
 		b, err = b.CreateBucketIfNotExists([]byte(build.Ref))
-		must(err)
+		candy.Must(err)
 		refID, err := b.NextSequence()
-		must(err)
-		must(b.Put(itob(refID), itob(build.ID)))
+		candy.Must(err)
+		candy.Must(b.Put(itob(refID), itob(build.ID)))
 		b, err = tx.CreateBucketIfNotExists(pendingBucket)
-		must(err)
-		must(b.Put(itob(buildID), make([]byte, 0)))
-	})
+		candy.Must(err)
+		return b.Put(itob(buildID), make([]byte, 0))
+	}))
 	if err != nil {
 		return Build{}, err
 	}
-	build.db = d
+	build.db = d.db
 	return build, err
 }
 
 // Build returns build given build id
 func (d *DB) Build(id uint64) (Build, error) {
 	var build Build
-	err := d.view(func(tx *bolt.Tx, must func(error)) {
+	err := d.db.View(makeSafeHandler(func(tx *bolt.Tx) error {
 		b := tx.Bucket(buildBucket)
 		if b == nil {
-			must(errors.New("buildBucket does not exist"))
+			return errors.New("buildBucket does not exist")
 		}
 		v := b.Get(itob(id))
 		if v == nil {
-			must(fmt.Errorf("id %d not exist", id))
+			return fmt.Errorf("id %d not exist", id)
 		}
-		must(gob.NewDecoder(bytes.NewReader(v)).Decode(&build))
-	})
+		return gob.NewDecoder(bytes.NewReader(v)).Decode(&build)
+	}))
 	if err != nil {
 		return Build{}, err
 	}
-	build.db = d
+	build.db = d.db
 	return build, nil
 }
 

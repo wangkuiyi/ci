@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/topicai/candy"
 )
 
 // LineType is the type of a line in output
@@ -55,7 +56,7 @@ const (
 // Build represents a build event in database
 // the coresponding value of public field in database will never change
 type Build struct {
-	db *DB
+	db *bolt.DB
 
 	T         BuildType
 	Ref       string
@@ -66,38 +67,40 @@ type Build struct {
 
 // SetStatus sets build status
 func (b *Build) SetStatus(s BuildStatus) error {
-	err := b.db.update(func(tx *bolt.Tx, must func(error)) {
+	err := b.db.Update(makeSafeHandler(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(statusBucket)
-		must(err)
-		must(bucket.Put(itob(b.ID), []byte(s)))
-		if !(s == BuildFailed || s == BuildSuccess || s == BuildError) {
-			return
-		}
+		candy.Must(err)
+		candy.Must(bucket.Put(itob(b.ID), []byte(s)))
+		if s == BuildFailed || s == BuildSuccess || s == BuildError {
+			// remove from pending
+			bucket = tx.Bucket(pendingBucket)
+			if bucket == nil {
+				return nil
+			}
 
-		bucket = tx.Bucket(pendingBucket)
-		if bucket == nil {
-			return
+			err = bucket.Delete(itob(b.ID))
+			candy.Must(err)
 		}
-
-		must(bucket.Delete(itob(b.ID)))
-	})
+		return nil
+	}))
 	return err
 }
 
 // Status returns build status
 func (b *Build) Status() (BuildStatus, error) {
 	var stat BuildStatus
-	err := b.db.view(func(tx *bolt.Tx, must func(error)) {
+	err := b.db.View(makeSafeHandler(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(statusBucket)
 		if bucket == nil {
-			must(errors.New("statusBucket not exist"))
+			return errors.New("statusBucket not exist")
 		}
 		v := bucket.Get(itob(b.ID))
 		if v == nil {
-			must(fmt.Errorf("build status not created for build id %d", b.ID))
+			return fmt.Errorf("build status not created for build id %d", b.ID)
 		}
 		stat = BuildStatus(v)
-	})
+		return nil
+	}))
 	if err != nil {
 		return "", err
 	}
@@ -117,15 +120,15 @@ func (b *Build) AppendOutput(o OutputLine) error {
 		return err
 	}
 
-	err = b.db.update(func(tx *bolt.Tx, must func(error)) {
+	err = b.db.Update(makeSafeHandler(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(outputBucket)
-		must(err)
+		candy.Must(err)
 		bucket, err = bucket.CreateBucketIfNotExists(itob(b.ID))
-		must(err)
+		candy.Must(err)
 		id, err := bucket.NextSequence()
-		must(err)
-		must(bucket.Put(itob(id), buf.Bytes()))
-	})
+		candy.Must(err)
+		return bucket.Put(itob(id), buf.Bytes())
+	}))
 	return err
 }
 
@@ -150,32 +153,33 @@ func (b *Build) Output(start, end int) ([]OutputLine, error) {
 	start++
 
 	var out []OutputLine
-	err = b.db.view(func(tx *bolt.Tx, must func(error)) {
+	err = b.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(outputBucket)
 		if bucket == nil {
 			// treat as no output
-			return
+			return nil
 		}
 		bucket = bucket.Bucket(itob(b.ID))
 		if bucket == nil {
 			// treat as no output
-			return
+			return nil
 		}
 		c := bucket.Cursor()
 		key := itob(uint64(start))
 		k, v := c.Seek(key)
 		if !bytes.Equal(key, k) {
 			// key not exist, start is too big
-			return
+			return nil
 		}
 
 		count := 0
 		for ; (diff == -1 || count < diff) && k != nil; k, v = c.Next() {
 			count++
 			var o OutputLine
-			must(gob.NewDecoder(bytes.NewReader(v)).Decode(&o))
+			candy.Must(gob.NewDecoder(bytes.NewReader(v)).Decode(&o))
 			out = append(out, o)
 		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
