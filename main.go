@@ -7,6 +7,8 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
+	"time"
+
 	"github.com/wangkuiyi/ci/db"
 	"github.com/wangkuiyi/ci/webhook"
 )
@@ -67,7 +69,7 @@ func main() {
 		case webhook.PushEvent:
 			b, err := d.CreateBuild(db.Push, e.Repository.CloneURL, e.Ref, e.HeadCommit.ID)
 			if err != nil {
-				b.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error()})
+				b.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error(), Time: time.Now()})
 				log.Println(err)
 				continue
 			}

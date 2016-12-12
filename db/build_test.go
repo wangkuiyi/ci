@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"testing"
+	"time"
 
 	"os"
 
@@ -38,10 +39,10 @@ func TestBuild(t *testing.T) {
 		t.FailNow()
 	}
 
-	line0 := db.OutputLine{T: db.Stdout, Str: "stdout"}
-	line1 := db.OutputLine{T: db.Stderr, Str: "stderr"}
-	line2 := db.OutputLine{T: db.Info, Str: "info"}
-	line3 := db.OutputLine{T: db.Error, Str: "error"}
+	line0 := db.OutputLine{T: db.Stdout, Str: "stdout", Time: time.Now()}
+	line1 := db.OutputLine{T: db.Stderr, Str: "stderr", Time: time.Now()}
+	line2 := db.OutputLine{T: db.Info, Str: "info", Time: time.Now()}
+	line3 := db.OutputLine{T: db.Error, Str: "error", Time: time.Now()}
 
 	b.AppendOutput(line0)
 	b.AppendOutput(line1)

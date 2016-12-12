@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"log"
 	"math/rand"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/wangkuiyi/ci/db"
 )
@@ -76,12 +78,56 @@ func (b *Builder) builderMain(id int) {
 		err := b.build(build, path)
 		if err != nil {
 			build.SetStatus(db.BuildError)
-			build.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error()})
+			build.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error(), Time: time.Now()})
 			log.Println(err)
 			continue
 		}
 	}
 	b.exitGroup.Done()
+}
+
+func run(cmd *exec.Cmd) ([]db.OutputLine, error) {
+	o, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	e, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err = cmd.Start(); err != nil {
+		return nil, err
+	}
+	waitOut := make(chan struct{})
+	waitErr := make(chan struct{})
+	var mu sync.Mutex
+	var output []db.OutputLine
+	go func() {
+		s := bufio.NewScanner(o)
+		for s.Scan() {
+			mu.Lock()
+			output = append(output, db.OutputLine{T: db.Stdout, Str: s.Text(), Time: time.Now()})
+			mu.Unlock()
+		}
+		close(waitOut)
+	}()
+
+	go func() {
+		s := bufio.NewScanner(e)
+		for s.Scan() {
+			mu.Lock()
+			output = append(output, db.OutputLine{T: db.Stderr, Str: s.Text(), Time: time.Now()})
+			mu.Unlock()
+		}
+		close(waitErr)
+	}()
+
+	<-waitOut
+	<-waitErr
+	if err = cmd.Wait(); err != nil {
+		return nil, err
+	}
+	return output, nil
 }
 
 // Execute ci scripts for Build with id = bid, path as directory
@@ -122,23 +168,19 @@ func (b *Builder) build(build db.Build, path string) error {
 	}
 
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Running build commands"})
+	err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Running build commands", Time: time.Now()})
 	if err != nil {
 		return err
 	}
-	buildErr := cmd.Run()
-	err = build.AppendOutput(db.OutputLine{T: db.Stdout, Str: string(stdout.Bytes())})
-	if err != nil {
-		return err
-	}
-	err = build.AppendOutput(db.OutputLine{T: db.Stderr, Str: string(stderr.Bytes())})
-	if err != nil {
-		return err
+	output, buildErr := run(cmd)
+	for _, o := range output {
+		err = build.AppendOutput(o)
+		if err != nil {
+			return err
+		}
 	}
 	if buildErr != nil {
-		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: buildErr.Error()})
+		err = build.AppendOutput(db.OutputLine{T: db.Error, Str: buildErr.Error(), Time: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -151,7 +193,7 @@ func (b *Builder) build(build db.Build, path string) error {
 			return err
 		}
 	} else {
-		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Exit 0"})
+		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Exit 0", Time: time.Now()})
 		if err != nil {
 			return err
 		}
@@ -180,29 +222,33 @@ func (b *Builder) build(build db.Build, path string) error {
 		return err
 	}
 
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Running clean commands"})
+	err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Running clean commands", Time: time.Now()})
 	if err != nil {
 		return err
 	}
-	buildErr = cmd.Run()
-	err = build.AppendOutput(db.OutputLine{T: db.Stdout, Str: string(stdout.Bytes())})
+	output, buildErr = run(cmd)
+	for _, o := range output {
+		err = build.AppendOutput(o)
+		if err != nil {
+			return err
+		}
+	}
+	err = build.AppendOutput(db.OutputLine{T: db.Stdout, Str: string(stdout.Bytes()), Time: time.Now()})
 	if err != nil {
 		return err
 	}
-	err = build.AppendOutput(db.OutputLine{T: db.Stderr, Str: string(stderr.Bytes())})
+	err = build.AppendOutput(db.OutputLine{T: db.Stderr, Str: string(stderr.Bytes()), Time: time.Now()})
 	if err != nil {
 		return err
 	}
 
 	if buildErr != nil {
-		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: buildErr.Error()})
+		err = build.AppendOutput(db.OutputLine{T: db.Error, Str: buildErr.Error(), Time: time.Now()})
 		if err != nil {
 			return err
 		}
 	} else {
-		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Exit 0"})
+		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Exit 0", Time: time.Now()})
 		if err != nil {
 			return err
 		}

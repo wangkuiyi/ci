@@ -28,13 +28,13 @@ $(function(){
             outputPanel.append("<a class=\"list-group-item list-group-item-success\" href=\"#" + lineId + "\">" + content + "</a>")
         } else if (channel == 1) {
             // stderr
-            outputPanel.append("<a class=\"list-group-item list-group-item-danger\" href=\"#"+ lineId + "\">"+ content + "</a>")
+            outputPanel.append("<a class=\"list-group-item list-group-item-warning\" href=\"#"+ lineId + "\">"+ content + "</a>")
         } else if (channel == 2) {
             // ci info
             outputPanel.append("<a class=\"list-group-item list-group-item-info\" href=\"#"+ lineId + "\">"+ content + "</a>")
         } else {
             // ci error
-            outputPanel.append("<a class=\"list-group-item list-group-item-warning\" href=\"#"+ lineId + "\">"+ content + "</a>")
+            outputPanel.append("<a class=\"list-group-item list-group-item-danger\" href=\"#"+ lineId + "\">"+ content + "</a>")
         }
         lineId += 1
     }

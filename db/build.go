@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/boltdb/bolt"
 )
@@ -22,8 +23,9 @@ const (
 
 // OutputLine is a line in output
 type OutputLine struct {
-	T   LineType
-	Str string
+	T    LineType
+	Time time.Time
+	Str  string
 }
 
 // BuildType is the type of build
