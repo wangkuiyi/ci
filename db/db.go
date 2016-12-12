@@ -65,44 +65,36 @@ func btoi(b []byte) uint64 {
 	return binary.BigEndian.Uint64(b)
 }
 
-type tx struct {
-	*bolt.Tx
-}
-
-type txErr error
-
-func (t *tx) must(err error) {
-	if err != nil {
-		panic(txErr(err))
-	}
-}
-
-func handle(f func(t *tx) error) func(t *tx) error {
-	return func(t *tx) (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("recover")
-				switch e := r.(type) {
-				case txErr:
-					err = error(e)
-				default:
-					panic(r)
-				}
+func handle(f func(*bolt.Tx, func(error)), t *bolt.Tx) (err error) {
+	type txErr error
+	defer func() {
+		if r := recover(); r != nil {
+			switch e := r.(type) {
+			case txErr:
+				err = error(e)
+			default:
+				panic(r)
 			}
-		}()
-		return f(t)
+		}
+	}()
+	must := func(err error) {
+		if err != nil {
+			panic(txErr(err))
+		}
 	}
+	f(t, must)
+	return nil
 }
 
-func (d *DB) view(f func(t *tx) error) error {
+func (d *DB) view(f func(*bolt.Tx, func(error))) error {
 	return d.db.View(func(t *bolt.Tx) error {
-		return handle(f)(&tx{t})
+		return handle(f, t)
 	})
 }
 
-func (d *DB) update(f func(t *tx) error) error {
+func (d *DB) update(f func(*bolt.Tx, func(error))) error {
 	return d.db.Update(func(t *bolt.Tx) error {
-		return handle(f)(&tx{t})
+		return handle(f, t)
 	})
 }
 
@@ -110,35 +102,35 @@ func (d *DB) update(f func(t *tx) error) error {
 func (d *DB) CreateBuild(t BuildType, cloneURL, ref, commitSHA string) (Build, error) {
 	build := Build{T: t, CloneURL: cloneURL, Ref: ref, CommitSHA: commitSHA}
 	var buildID uint64
-	err := d.update(func(tx *tx) error {
+	err := d.update(func(tx *bolt.Tx, must func(error)) {
 		b, err := tx.CreateBucketIfNotExists(buildBucket)
-		tx.must(err)
+		must(err)
 		buildID, err = b.NextSequence()
-		tx.must(err)
+		must(err)
 		build.ID = buildID
 		var buf bytes.Buffer
 		enc := gob.NewEncoder(&buf)
-		tx.must(enc.Encode(build))
-		tx.must(b.Put(itob(buildID), buf.Bytes()))
+		must(enc.Encode(build))
+		must(b.Put(itob(buildID), buf.Bytes()))
 		b, err = tx.CreateBucketIfNotExists(shaBucket)
-		tx.must(err)
+		must(err)
 		b, err = b.CreateBucketIfNotExists([]byte(build.CommitSHA))
-		tx.must(err)
+		must(err)
 		commitID, err := b.NextSequence()
-		tx.must(err)
-		tx.must(b.Put(itob(commitID), itob(build.ID)))
+		must(err)
+		must(b.Put(itob(commitID), itob(build.ID)))
 		b, err = tx.CreateBucketIfNotExists(refBucket)
-		tx.must(err)
+		must(err)
 		b, err = b.CreateBucketIfNotExists(itob(uint64(build.T)))
-		tx.must(err)
+		must(err)
 		b, err = b.CreateBucketIfNotExists([]byte(build.Ref))
-		tx.must(err)
+		must(err)
 		refID, err := b.NextSequence()
-		tx.must(err)
-		tx.must(b.Put(itob(refID), itob(build.ID)))
+		must(err)
+		must(b.Put(itob(refID), itob(build.ID)))
 		b, err = tx.CreateBucketIfNotExists(pendingBucket)
-		tx.must(err)
-		return b.Put(itob(buildID), make([]byte, 0))
+		must(err)
+		must(b.Put(itob(buildID), make([]byte, 0)))
 	})
 	if err != nil {
 		return Build{}, err
@@ -150,16 +142,16 @@ func (d *DB) CreateBuild(t BuildType, cloneURL, ref, commitSHA string) (Build, e
 // Build returns build given build id
 func (d *DB) Build(id uint64) (Build, error) {
 	var build Build
-	err := d.view(func(tx *tx) error {
+	err := d.view(func(tx *bolt.Tx, must func(error)) {
 		b := tx.Bucket(buildBucket)
 		if b == nil {
-			return errors.New("buildBucket does not exist")
+			must(errors.New("buildBucket does not exist"))
 		}
 		v := b.Get(itob(id))
 		if v == nil {
-			return fmt.Errorf("id %d not exist", id)
+			must(fmt.Errorf("id %d not exist", id))
 		}
-		return gob.NewDecoder(bytes.NewReader(v)).Decode(&build)
+		must(gob.NewDecoder(bytes.NewReader(v)).Decode(&build))
 	})
 	if err != nil {
 		return Build{}, err
