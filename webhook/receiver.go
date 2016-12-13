@@ -19,16 +19,17 @@ type PushEvent struct {
 
 // PullRequestEvent is a webhook pull request event
 type PullRequestEvent struct {
-	Action     string `json:"action"`
-	PullRequst struct {
-		ID int `json:"id"`
+	Action      string `json:"action"`
+	PullRequest struct {
+		ID   int `json:"id"`
+		Head struct {
+			Sha  string `json:"sha"`
+			Ref  string `json:"ref"`
+			Repo struct {
+				CloneURL string `json:"clone_url"`
+			} `json:"repo"`
+		} `json:"head"`
 	} `json:"pull_request"`
-	Repo struct {
-		CloneURL string `json:"clone_url"`
-	} `json:"repo"`
-	Head struct {
-		Sha string `json:"sha"`
-	} `json:"head"`
 }
 
 // Receiver receives webhook events

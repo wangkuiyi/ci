@@ -26,14 +26,13 @@ func newGithubAPI(opts *Options) *GithubAPI {
 	}
 }
 
+// github build status
 const (
-	// GithubPending github check status pending
 	GithubPending = "pending"
-	// GithubSuccess github check status success
 	GithubSuccess = "success"
-	// GithubError github check status error
+	// GithubError means job did complete, but exited with non-zero status
 	GithubError = "error"
-	// GithubFailure github check status failure
+	// GithubFailure means job failed to complete
 	GithubFailure = "failure"
 )
 
