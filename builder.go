@@ -79,6 +79,7 @@ func (b *Builder) builderMain(id int) {
 		if err != nil {
 			build.SetStatus(db.BuildError)
 			build.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error(), Time: time.Now()})
+			b.github.CreateStatus(build.CommitSHA, GithubFailure)
 			log.Println(err)
 			continue
 		}
@@ -176,7 +177,7 @@ func (b *Builder) build(build db.Build, path string) error {
 		if err != nil {
 			return err
 		}
-		err = b.github.CreateStatus(build.CommitSHA, GithubFailure)
+		err = b.github.CreateStatus(build.CommitSHA, GithubError)
 		if err != nil {
 			return err
 		}

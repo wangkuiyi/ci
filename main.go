@@ -7,8 +7,6 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	"time"
-
 	"github.com/wangkuiyi/ci/db"
 	"github.com/wangkuiyi/ci/webhook"
 )
@@ -69,8 +67,11 @@ func main() {
 		case webhook.PushEvent:
 			b, err := d.CreateBuild(db.Push, e.Repository.CloneURL, e.Ref, e.HeadCommit.ID)
 			if err != nil {
-				b.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error(), Time: time.Now()})
-				log.Println(err)
+				log.Println(err, e)
+				err = github.CreateStatus(e.HeadCommit.ID, GithubFailure)
+				if err != nil {
+					log.Println(err)
+				}
 				continue
 			}
 			b.SetStatus(db.BuildQueued)
@@ -78,7 +79,23 @@ func main() {
 				buildChan <- b
 			}(b)
 		case webhook.PullRequestEvent:
-			// TODO(helin)
+			if e.Action != "opened" && e.Action != "synchronize" {
+				continue
+			}
+			b, err := d.CreateBuild(db.PullRequest, e.PullRequest.Head.Repo.CloneURL, e.PullRequest.Head.Ref, e.PullRequest.Head.Sha)
+			if err != nil {
+				log.Println(err, e)
+				err = github.CreateStatus(e.PullRequest.Head.Sha, GithubFailure)
+				if err != nil {
+					log.Println(err)
+				}
+				continue
+			}
+
+			b.SetStatus(db.BuildQueued)
+			go func(b db.Build) {
+				buildChan <- b
+			}(b)
 		}
 	}
 }
