@@ -86,28 +86,24 @@ func (b *Builder) builderMain(id int) {
 	b.exitGroup.Done()
 }
 
-func run(cmd *exec.Cmd) ([]db.OutputLine, error) {
+func run(b db.Build, cmd *exec.Cmd) error {
 	o, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	e, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err = cmd.Start(); err != nil {
-		return nil, err
+		return err
 	}
 	waitOut := make(chan struct{})
 	waitErr := make(chan struct{})
-	var mu sync.Mutex
-	var output []db.OutputLine
 	go func() {
 		s := bufio.NewScanner(o)
 		for s.Scan() {
-			mu.Lock()
-			output = append(output, db.OutputLine{T: db.Stdout, Str: s.Text(), Time: time.Now()})
-			mu.Unlock()
+			b.AppendOutput(db.OutputLine{T: db.Stdout, Str: s.Text(), Time: time.Now()})
 		}
 		close(waitOut)
 	}()
@@ -115,9 +111,7 @@ func run(cmd *exec.Cmd) ([]db.OutputLine, error) {
 	go func() {
 		s := bufio.NewScanner(e)
 		for s.Scan() {
-			mu.Lock()
-			output = append(output, db.OutputLine{T: db.Stderr, Str: s.Text(), Time: time.Now()})
-			mu.Unlock()
+			b.AppendOutput(db.OutputLine{T: db.Stderr, Str: s.Text(), Time: time.Now()})
 		}
 		close(waitErr)
 	}()
@@ -125,9 +119,9 @@ func run(cmd *exec.Cmd) ([]db.OutputLine, error) {
 	<-waitOut
 	<-waitErr
 	if err = cmd.Wait(); err != nil {
-		return nil, err
+		return err
 	}
-	return output, nil
+	return nil
 }
 
 // Execute ci scripts for Build with id = bid, path as directory
@@ -172,13 +166,7 @@ func (b *Builder) build(build db.Build, path string) error {
 	if err != nil {
 		return err
 	}
-	output, buildErr := run(cmd)
-	for _, o := range output {
-		err = build.AppendOutput(o)
-		if err != nil {
-			return err
-		}
-	}
+	buildErr := run(build, cmd)
 	if buildErr != nil {
 		err = build.AppendOutput(db.OutputLine{T: db.Error, Str: buildErr.Error(), Time: time.Now()})
 		if err != nil {
@@ -226,13 +214,7 @@ func (b *Builder) build(build db.Build, path string) error {
 	if err != nil {
 		return err
 	}
-	output, buildErr = run(cmd)
-	for _, o := range output {
-		err = build.AppendOutput(o)
-		if err != nil {
-			return err
-		}
-	}
+	buildErr = run(build, cmd)
 	err = build.AppendOutput(db.OutputLine{T: db.Stdout, Str: string(stdout.Bytes()), Time: time.Now()})
 	if err != nil {
 		return err
