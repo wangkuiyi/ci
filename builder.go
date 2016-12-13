@@ -2,7 +2,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"log"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -10,12 +12,15 @@ import (
 	"strconv"
 	"sync"
 	"text/template"
+	"time"
+
+	"github.com/wangkuiyi/ci/db"
 )
 
 // Builder will start multiple go routine to executing ci scripts for each builds.
 // For each build, builder will generate an shell script for execution. Then just execute this shell script.
 type Builder struct {
-	jobChan chan int64 // channel for build id
+	jobChan <-chan db.Build // channel for build id
 
 	opt *BuildOption // the build options.
 
@@ -25,13 +30,12 @@ type Builder struct {
 	cleanTpl          *template.Template // clean template. clean the building workspace.
 	exitGroup         sync.WaitGroup     // wait group for Close builder. waiting all go routine to exit.
 
-	db     *CIDB      // database
 	github *GithubAPI // github api
 }
 
 // New builder instance.
 // It will create the building directory for each go routine. The building dir can be configured in configuration file.
-func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) (builder *Builder, err error) {
+func newBuilder(jobChan <-chan db.Build, opts *Options, github *GithubAPI) (builder *Builder, err error) {
 	for i := 0; i < opts.Build.Concurrent; i++ {
 		path := path.Join(opts.Build.Dir, strconv.Itoa(i))
 		err = os.MkdirAll(path, 0755)
@@ -43,7 +47,6 @@ func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) 
 	builder = &Builder{
 		jobChan: jobChan,
 		opt:     &opts.Build,
-		db:      db,
 		github:  github,
 	}
 
@@ -67,76 +70,129 @@ func newBuilder(jobChan chan int64, opts *Options, db *CIDB, github *GithubAPI) 
 // Param id is the go routine id, start from 0.
 func (b *Builder) builderMain(id int) {
 	path := path.Join(b.opt.Dir, strconv.Itoa(id))
-	var bid int64
-	var ok bool
 	for {
-		bid, ok = <-b.jobChan
+		build, ok := <-b.jobChan
 		if !ok {
 			break
 		}
-		b.build(bid, path)
+		err := b.build(build, path)
+		if err != nil {
+			build.SetStatus(db.BuildError)
+			build.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error(), Time: time.Now()})
+			log.Println(err)
+			continue
+		}
 	}
 	b.exitGroup.Done()
 }
 
-// Execute ci scripts for Build with id = bid, path as directory
-func (b *Builder) build(bid int64, path string) {
-	ev, err := b.db.GetPushEventByBuildID(bid)
-	checkNoErr(err)
-	err = b.github.CreateStatus(ev.HeadCommit.ID, GithubPending)
-	checkNoErr(err)
-	err = b.db.UpdateBuildStatus(bid, BuildRunning)
-	checkNoErr(err)
-
-	// After running, all panic should be recovered.
-	defer func() {
-		if r := recover(); r != nil {
-			// CI System Error, set github status & database to error
-			err := b.github.CreateStatus(ev.HeadCommit.ID, GithubError)
-			checkNoErr(err)
-			err = b.db.UpdateBuildStatus(bid, BuildError)
-			checkNoErr(err)
+func run(b db.Build, cmd *exec.Cmd) error {
+	o, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	e, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err = cmd.Start(); err != nil {
+		return err
+	}
+	waitOut := make(chan struct{})
+	waitErr := make(chan struct{})
+	go func() {
+		s := bufio.NewScanner(o)
+		for s.Scan() {
+			b.AppendOutput(db.OutputLine{T: db.Stdout, Str: s.Text(), Time: time.Now()})
 		}
+		close(waitOut)
 	}()
+
+	go func() {
+		s := bufio.NewScanner(e)
+		for s.Scan() {
+			b.AppendOutput(db.OutputLine{T: db.Stderr, Str: s.Text(), Time: time.Now()})
+		}
+		close(waitErr)
+	}()
+
+	<-waitOut
+	<-waitErr
+	if err = cmd.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Execute ci scripts for Build with id = bid, path as directory
+func (b *Builder) build(build db.Build, path string) error {
+	err := build.SetStatus(db.BuildRunning)
+	if err != nil {
+		return err
+	}
+	err = b.github.CreateStatus(build.CommitSHA, GithubPending)
+	if err != nil {
+		return err
+	}
 
 	var buffer bytes.Buffer
 	err = b.bootstrapTpl.Execute(&buffer, b.opt)
-	checkNoErr(err)
+	if err != nil {
+		return err
+	}
+
 	err = b.pushEventCloneTpl.Execute(&buffer, struct {
 		CloneURL  string
 		Ref       string
 		Head      string
 		BuildPath string
-	}{CloneURL: ev.Repository.CloneURL, Ref: ev.Ref, Head: ev.HeadCommit.ID, BuildPath: path})
-	checkNoErr(err)
+	}{CloneURL: build.CloneURL, Ref: build.Ref, Head: build.CommitSHA, BuildPath: path})
+	if err != nil {
+		return err
+	}
+
 	err = b.execTpl.Execute(&buffer, b.opt)
-	checkNoErr(err)
+	if err != nil {
+		return err
+	}
+
 	cmd, err := genCmd(path, buffer.Bytes())
-	checkNoErr(err)
+	if err != nil {
+		return err
+	}
+
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = b.db.AppendBuildOutput(bid, "Exec Build Commands", false)
-	checkNoErr(err)
-	buildErr := cmd.Run()
-	err = b.db.AppendBuildOutput(bid, string(stdout.Bytes()), true)
-	checkNoErr(err)
-	err = b.db.AppendBuildOutput(bid, string(stderr.Bytes()), false)
-	checkNoErr(err)
+	err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Running build commands", Time: time.Now()})
+	if err != nil {
+		return err
+	}
+	buildErr := run(build, cmd)
 	if buildErr != nil {
-		err = b.db.AppendBuildOutput(bid, buildErr.Error(), false)
-		checkNoErr(err)
-		err = b.db.UpdateBuildStatus(bid, BuildFailed)
-		checkNoErr(err)
-		err = b.github.CreateStatus(ev.HeadCommit.ID, GithubFailure)
-		checkNoErr(err)
+		err = build.AppendOutput(db.OutputLine{T: db.Error, Str: buildErr.Error(), Time: time.Now()})
+		if err != nil {
+			return err
+		}
+		err = build.SetStatus(db.BuildFailed)
+		if err != nil {
+			return err
+		}
+		err = b.github.CreateStatus(build.CommitSHA, GithubFailure)
+		if err != nil {
+			return err
+		}
 	} else {
-		err = b.db.AppendBuildOutput(bid, "Exit 0", false)
-		checkNoErr(err)
-		err = b.db.UpdateBuildStatus(bid, BuildSuccess)
-		checkNoErr(err)
-		err = b.github.CreateStatus(ev.HeadCommit.ID, GithubSuccess)
-		checkNoErr(err)
+		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Exit 0", Time: time.Now()})
+		if err != nil {
+			return err
+		}
+		err = build.SetStatus(db.BuildSuccess)
+		if err != nil {
+			return err
+		}
+		err = b.github.CreateStatus(build.CommitSHA, GithubSuccess)
+		if err != nil {
+			return err
+		}
 	}
 
 	stdout, stderr = bytes.Buffer{}, bytes.Buffer{}
@@ -145,26 +201,41 @@ func (b *Builder) build(bid int64, path string) {
 		*BuildOption
 		BuildPath string
 	}{BuildOption: b.opt, BuildPath: path})
-	checkNoErr(err)
-	cmd, err = genCmd(path, buf.Bytes())
-	checkNoErr(err)
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	b.db.AppendBuildOutput(bid, "Exec Clean Commands", false)
-	checkNoErr(err)
-	buildErr = cmd.Run()
-	err = b.db.AppendBuildOutput(bid, string(stdout.Bytes()), true)
-	checkNoErr(err)
-	err = b.db.AppendBuildOutput(bid, string(stderr.Bytes()), false)
-	checkNoErr(err)
-	if buildErr != nil {
-		err = b.db.AppendBuildOutput(bid, buildErr.Error(), false)
-		checkNoErr(err)
-	} else {
-		err = b.db.AppendBuildOutput(bid, "Exit 0", false)
-		checkNoErr(err)
+	if err != nil {
+		return err
 	}
+
+	cmd, err = genCmd(path, buf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Running clean commands", Time: time.Now()})
+	if err != nil {
+		return err
+	}
+	buildErr = run(build, cmd)
+	err = build.AppendOutput(db.OutputLine{T: db.Stdout, Str: string(stdout.Bytes()), Time: time.Now()})
+	if err != nil {
+		return err
+	}
+	err = build.AppendOutput(db.OutputLine{T: db.Stderr, Str: string(stderr.Bytes()), Time: time.Now()})
+	if err != nil {
+		return err
+	}
+
+	if buildErr != nil {
+		err = build.AppendOutput(db.OutputLine{T: db.Error, Str: buildErr.Error(), Time: time.Now()})
+		if err != nil {
+			return err
+		}
+	} else {
+		err = build.AppendOutput(db.OutputLine{T: db.Info, Str: "Exit 0", Time: time.Now()})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Start all go routines
@@ -173,12 +244,6 @@ func (b *Builder) Start() {
 		b.exitGroup.Add(1)
 		go b.builderMain(i)
 	}
-}
-
-// Close will stop all go routines
-func (b *Builder) Close() {
-	close(b.jobChan)
-	b.exitGroup.Wait()
 }
 
 func genCmd(basepath string, cmd []byte) (c *exec.Cmd, err error) {
