@@ -95,7 +95,7 @@ https://ngrok.com/download
 
 ### Run
 ```
-ngrok http 8000 // 8000 is ci server default port
+ngrok http 8000 # 8000 is ci server default port
 ```
 This will bring up a fullscreen UI like the following:
 
