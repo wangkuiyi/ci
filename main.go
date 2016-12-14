@@ -7,31 +7,60 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
+	"fmt"
+
 	"github.com/wangkuiyi/ci/db"
+	"github.com/wangkuiyi/ci/github"
 	"github.com/wangkuiyi/ci/webhook"
 )
 
+const (
+	buildDir = "./build"
+)
+
+// settings that user need to define
+type setting struct {
+	// how many build scripts can be performed in parallel.
+	// The builds are executed in different directory
+	Concurrent int
+	// The build environment can be anything. Such as OS=osx OS_VERSION=10.11
+	Env map[string]string
+	// repo settings
+	Github struct {
+		Description string // description for CI shown on github integration comment
+		Secret      string // github webhook secret
+		Token       string // github personal token.
+		Owner       string // repository owner
+		Name        string // repository name
+		Filename    string // ci script filename
+		Endpoint    string // ci server endpoint name (host:ip), build status on github will reference this endpoint
+	}
+}
+
 func main() {
-	path := flag.String("db", "", "path to db")
-	fn := flag.String("config", "", "Configuration File")
+	path := flag.String("db", "/data/ci.db", "path to db")
+	cfg := flag.String("config", "/data/ci.yaml", "configuration file")
+	port := flag.Int("port", 8000, "ci server port")
+	template := flag.String("template", "/templates", "ci server template directory")
 	flag.Parse()
 
-	if *fn == "" || *path == "" {
-		flag.Usage()
-		return
-	}
-
-	opts := newOptions()
-	content, err := ioutil.ReadFile(*fn)
+	setting := &setting{}
+	content, err := ioutil.ReadFile(*cfg)
 	if err != nil {
 		panic(err)
 	}
-	err = yaml.Unmarshal(content, opts)
+	err = yaml.Unmarshal(content, &setting)
 	if err != nil {
 		panic(err)
 	}
-	github := newGithubAPI(opts)
-	err = github.CheckRepo()
+	g := github.New(
+		setting.Github.Endpoint,
+		setting.Github.Description,
+		setting.Github.Owner,
+		setting.Github.Name,
+		setting.Github.Token,
+	)
+	err = g.CheckRepo()
 	if err != nil {
 		panic(err)
 	}
@@ -53,11 +82,11 @@ func main() {
 		}
 	}()
 
-	builder, err := newBuilder(buildChan, opts, github)
+	builder, err := newBuilder(buildChan, g, setting.Concurrent, buildDir, setting.Github.Filename, setting.Env)
 	builder.Start()
 
 	eventQueue := make(chan interface{})
-	serv := newHTTPServer(opts, d, github, eventQueue)
+	serv := newHTTPServer(d, g, eventQueue, fmt.Sprintf(":%d", *port), *template, setting.Github.Owner, setting.Github.Name, setting.Github.Description)
 	go func() {
 		log.Println(serv.ListenAndServe())
 	}()
@@ -68,7 +97,7 @@ func main() {
 			b, err := d.CreateBuild(db.Push, e.Repository.CloneURL, e.Ref, e.HeadCommit.ID)
 			if err != nil {
 				log.Println(err, e)
-				err = github.CreateStatus(e.HeadCommit.ID, GithubFailure)
+				err = g.CreateStatus(e.HeadCommit.ID, github.Failure)
 				if err != nil {
 					log.Println(err)
 				}
@@ -85,7 +114,7 @@ func main() {
 			b, err := d.CreateBuild(db.PullRequest, e.PullRequest.Head.Repo.CloneURL, e.PullRequest.Head.Ref, e.PullRequest.Head.Sha)
 			if err != nil {
 				log.Println(err, e)
-				err = github.CreateStatus(e.PullRequest.Head.Sha, GithubFailure)
+				err = g.CreateStatus(e.PullRequest.Head.Sha, github.Failure)
 				if err != nil {
 					log.Println(err)
 				}

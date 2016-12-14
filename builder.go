@@ -10,34 +10,66 @@ import (
 	"os/exec"
 	"path"
 	"strconv"
-	"sync"
 	"text/template"
 	"time"
 
 	"github.com/wangkuiyi/ci/db"
+	"github.com/wangkuiyi/ci/github"
+)
+
+const (
+	bootstrapTpl = `#!/bin/bash
+echo "Setting Environments"
+set -x
+{{range $envKey, $envVal := .Env}}
+export {{$envKey}}="{{$envVal}}"
+{{end}}
+set +x
+set -e
+`
+	pushEventCloneTpl = `
+set -x
+cd {{.BuildPath}}
+git clone --depth 1 {{.CloneURL}} repo
+cd repo
+git fetch origin {{.Ref}}
+git checkout -qf {{.Head}}
+`
+	executeTpl = `
+set +x
+if [ -f {{.CIPath}} ]; then
+	source {{.CIPath}}
+else
+	echo "{{.CIPath}} not found, it seems the ci script is not configured."
+fi
+`
+	cleanTpl = `#!/bin/bash
+rm -rf {{.BuildPath}}/*
+`
 )
 
 // Builder will start multiple go routine to executing ci scripts for each builds.
 // For each build, builder will generate an shell script for execution. Then just execute this shell script.
 type Builder struct {
-	jobChan <-chan db.Build // channel for build id
-
-	opt *BuildOption // the build options.
+	jobChan    <-chan db.Build // channel for build id
+	dir        string
+	concurrent int
+	ciPath     string
+	env        map[string]string
 
 	bootstrapTpl      *template.Template // the build bootstrap template, including setting environment, etc.
 	pushEventCloneTpl *template.Template // git clone template for push event.
 	execTpl           *template.Template // execute ci scripts template.
 	cleanTpl          *template.Template // clean template. clean the building workspace.
-	exitGroup         sync.WaitGroup     // wait group for Close builder. waiting all go routine to exit.
 
-	github *GithubAPI // github api
+	github *github.API // github api
 }
 
 // New builder instance.
 // It will create the building directory for each go routine. The building dir can be configured in configuration file.
-func newBuilder(jobChan <-chan db.Build, opts *Options, github *GithubAPI) (builder *Builder, err error) {
-	for i := 0; i < opts.Build.Concurrent; i++ {
-		path := path.Join(opts.Build.Dir, strconv.Itoa(i))
+func newBuilder(jobChan <-chan db.Build, github *github.API, concurrent int, dir, ciPath string, env map[string]string) (builder *Builder, err error) {
+	for i := 0; i < concurrent; i++ {
+		path := path.Join(dir, strconv.Itoa(i))
 		err = os.MkdirAll(path, 0755)
 		if err != nil {
 			return
@@ -45,31 +77,34 @@ func newBuilder(jobChan <-chan db.Build, opts *Options, github *GithubAPI) (buil
 	}
 
 	builder = &Builder{
-		jobChan: jobChan,
-		opt:     &opts.Build,
-		github:  github,
+		jobChan:    jobChan,
+		dir:        dir,
+		ciPath:     ciPath,
+		env:        env,
+		concurrent: concurrent,
+		github:     github,
 	}
 
-	builder.bootstrapTpl, err = template.New("bootstrap").Parse(opts.Build.BootstrapTpl)
+	builder.bootstrapTpl, err = template.New("bootstrap").Parse(bootstrapTpl)
 	if err != nil {
 		return
 	}
-	builder.pushEventCloneTpl, err = template.New("pushEvent").Parse(opts.Build.PushEventCloneTpl)
+	builder.pushEventCloneTpl, err = template.New("pushEvent").Parse(pushEventCloneTpl)
 	if err != nil {
 		return
 	}
-	builder.execTpl, err = template.New("exec").Parse(opts.Build.ExecuteTpl)
+	builder.execTpl, err = template.New("exec").Parse(executeTpl)
 	if err != nil {
 		return
 	}
-	builder.cleanTpl, err = template.New("clean").Parse(opts.Build.CleanTpl)
+	builder.cleanTpl, err = template.New("clean").Parse(cleanTpl)
 	return
 }
 
 // The entry for each build goroutine.
 // Param id is the go routine id, start from 0.
 func (b *Builder) builderMain(id int) {
-	path := path.Join(b.opt.Dir, strconv.Itoa(id))
+	path := path.Join(b.dir, strconv.Itoa(id))
 	for {
 		build, ok := <-b.jobChan
 		if !ok {
@@ -79,12 +114,11 @@ func (b *Builder) builderMain(id int) {
 		if err != nil {
 			build.SetStatus(db.BuildError)
 			build.AppendOutput(db.OutputLine{T: db.Error, Str: err.Error(), Time: time.Now()})
-			b.github.CreateStatus(build.CommitSHA, GithubFailure)
+			b.github.CreateStatus(build.CommitSHA, github.Failure)
 			log.Println(err)
 			continue
 		}
 	}
-	b.exitGroup.Done()
 }
 
 func run(b db.Build, cmd *exec.Cmd) error {
@@ -131,13 +165,13 @@ func (b *Builder) build(build db.Build, path string) error {
 	if err != nil {
 		return err
 	}
-	err = b.github.CreateStatus(build.CommitSHA, GithubPending)
+	err = b.github.CreateStatus(build.CommitSHA, github.Pending)
 	if err != nil {
 		return err
 	}
 
 	var buffer bytes.Buffer
-	err = b.bootstrapTpl.Execute(&buffer, b.opt)
+	err = b.bootstrapTpl.Execute(&buffer, struct{ Env map[string]string }{Env: b.env})
 	if err != nil {
 		return err
 	}
@@ -152,7 +186,7 @@ func (b *Builder) build(build db.Build, path string) error {
 		return err
 	}
 
-	err = b.execTpl.Execute(&buffer, b.opt)
+	err = b.execTpl.Execute(&buffer, struct{ CIPath string }{CIPath: b.ciPath})
 	if err != nil {
 		return err
 	}
@@ -177,7 +211,7 @@ func (b *Builder) build(build db.Build, path string) error {
 		if err != nil {
 			return err
 		}
-		err = b.github.CreateStatus(build.CommitSHA, GithubError)
+		err = b.github.CreateStatus(build.CommitSHA, github.Error)
 		if err != nil {
 			return err
 		}
@@ -190,7 +224,7 @@ func (b *Builder) build(build db.Build, path string) error {
 		if err != nil {
 			return err
 		}
-		err = b.github.CreateStatus(build.CommitSHA, GithubSuccess)
+		err = b.github.CreateStatus(build.CommitSHA, github.Success)
 		if err != nil {
 			return err
 		}
@@ -199,9 +233,8 @@ func (b *Builder) build(build db.Build, path string) error {
 	stdout, stderr = bytes.Buffer{}, bytes.Buffer{}
 	var buf bytes.Buffer
 	err = b.cleanTpl.Execute(&buf, struct {
-		*BuildOption
 		BuildPath string
-	}{BuildOption: b.opt, BuildPath: path})
+	}{BuildPath: path})
 	if err != nil {
 		return err
 	}
@@ -241,8 +274,7 @@ func (b *Builder) build(build db.Build, path string) error {
 
 // Start all go routines
 func (b *Builder) Start() {
-	for i := 0; i < b.opt.Concurrent; i++ {
-		b.exitGroup.Add(1)
+	for i := 0; i < b.concurrent; i++ {
 		go b.builderMain(i)
 	}
 }

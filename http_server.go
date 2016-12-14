@@ -18,10 +18,10 @@ import (
 
 	"encoding/json"
 
-	"github.com/gorilla/context"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
 	"github.com/wangkuiyi/ci/db"
+	"github.com/wangkuiyi/ci/github"
 	"github.com/wangkuiyi/ci/webhook"
 )
 
@@ -35,18 +35,20 @@ type HTTPServer struct {
 	db *db.DB // Database
 
 	renderer *Renderer
-	github   *GithubAPI
+	github   *github.API
 }
 
 // Renderer is a http middleware for render template
 type Renderer struct {
-	tmpls map[string]*template.Template
-	opts  *Options
+	tmpls       map[string]*template.Template
+	owner       string
+	name        string
+	description string
 }
 
-func newRenderer(opts *Options) *Renderer {
+func newRenderer(dir, owner, name, description string) *Renderer {
 	tmpls := make(map[string]*template.Template)
-	files, err := ioutil.ReadDir(opts.HTTP.TemplateDir)
+	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		panic(err)
 	}
@@ -54,21 +56,18 @@ func newRenderer(opts *Options) *Renderer {
 		if !f.IsDir() {
 			name := f.Name()
 			if strings.HasSuffix(name, ".gohtml") && !strings.HasSuffix(name, "base.gohtml") {
-				tmpl := template.Must(template.ParseFiles(path.Join(opts.HTTP.TemplateDir, "base.gohtml"), path.Join(opts.HTTP.TemplateDir, name)))
+				tmpl := template.Must(template.ParseFiles(path.Join(dir, "base.gohtml"), path.Join(dir, name)))
 				tmpls[name] = tmpl
 			}
 		}
 	}
 
 	return &Renderer{
-		tmpls: tmpls,
-		opts:  opts,
+		tmpls:       tmpls,
+		owner:       owner,
+		name:        name,
+		description: description,
 	}
-}
-
-func (renderer *Renderer) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	context.Set(r, "renderer", renderer)
-	next(rw, r)
 }
 
 func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[string]interface{}) {
@@ -79,10 +78,9 @@ func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[s
 		}
 	}
 
-	insertIfNotExist("Owner", renderer.opts.Github.Owner)
-	insertIfNotExist("RepoName", renderer.opts.Github.Name)
-	insertIfNotExist("Description", renderer.opts.Github.Description)
-	log.Println(data)
+	insertIfNotExist("Owner", renderer.owner)
+	insertIfNotExist("RepoName", renderer.name)
+	insertIfNotExist("Description", renderer.description)
 	tpl, ok := renderer.tmpls[fmt.Sprintf("%s.gohtml", name)]
 	if ok {
 		err := tpl.Execute(rw, data)
@@ -94,20 +92,19 @@ func (renderer *Renderer) render(rw http.ResponseWriter, name string, data map[s
 	}
 }
 
-func newHTTPServer(opts *Options, db *db.DB, github *GithubAPI, eventQueue chan<- interface{}) *HTTPServer {
+func newHTTPServer(db *db.DB, github *github.API, eventQueue chan<- interface{}, addr, dir, owner, name, description string) *HTTPServer {
 	serv := &HTTPServer{
-		addr:     opts.HTTP.Addr,
+		addr:     addr,
 		router:   mux.NewRouter(),
 		n:        negroni.New(),
 		db:       db,
-		renderer: newRenderer(opts),
+		renderer: newRenderer(dir, owner, name, description),
 		github:   github,
 	}
 	hook := &webhook.Receiver{Ch: eventQueue}
 	serv.n.Use(negroni.NewRecovery())
 	serv.n.Use(negroni.NewLogger())
-	serv.n.Use(serv.renderer)
-	serv.router.HandleFunc(opts.HTTP.CIUri, hook.ServeHTTP)
+	serv.router.HandleFunc("/ci/", hook.ServeHTTP)
 	serv.router.HandleFunc("/", serv.homeHandler).Methods("Get").Name("home")
 	serv.router.HandleFunc("/status/{sha:[0-9a-f]+}", serv.statusHandler).Methods("Get").Name("status")
 	serv.router.HandleFunc("/builds/{buildID:[0-9]+}", serv.buildsHandler).Methods("Get").Name("builds")
@@ -122,7 +119,7 @@ func (h *HTTPServer) ListenAndServe() error {
 }
 
 func (h *HTTPServer) render(res http.ResponseWriter, req *http.Request, name string, data map[string]interface{}) {
-	context.Get(req, "renderer").(*Renderer).render(res, name, data)
+	h.renderer.render(res, name, data)
 }
 
 func minInt(a, b int) int {
