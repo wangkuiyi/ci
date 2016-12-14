@@ -22,7 +22,7 @@ const (
 type setting struct {
 	// how many build scripts can be performed in parallel.
 	// The builds are executed in different directory
-	Concurrent int
+	Concurrency int
 	// The build environment can be anything. Such as OS=osx OS_VERSION=10.11
 	Env map[string]string
 	// repo settings
@@ -82,7 +82,7 @@ func main() {
 		}
 	}()
 
-	builder, err := newBuilder(buildChan, g, setting.Concurrent, buildDir, setting.Github.Filename, setting.Env)
+	builder, err := newBuilder(buildChan, g, setting.Concurrency, buildDir, setting.Github.Filename, setting.Env)
 	builder.Start()
 
 	eventQueue := make(chan interface{})

@@ -51,11 +51,11 @@ rm -rf {{.BuildPath}}/*
 // Builder will start multiple go routine to executing ci scripts for each builds.
 // For each build, builder will generate an shell script for execution. Then just execute this shell script.
 type Builder struct {
-	jobChan    <-chan db.Build // channel for build id
-	dir        string
-	concurrent int
-	ciPath     string
-	env        map[string]string
+	jobChan     <-chan db.Build // channel for build id
+	dir         string
+	concurrency int
+	ciPath      string
+	env         map[string]string
 
 	bootstrapTpl      *template.Template // the build bootstrap template, including setting environment, etc.
 	pushEventCloneTpl *template.Template // git clone template for push event.
@@ -67,8 +67,8 @@ type Builder struct {
 
 // New builder instance.
 // It will create the building directory for each go routine. The building dir can be configured in configuration file.
-func newBuilder(jobChan <-chan db.Build, github *github.API, concurrent int, dir, ciPath string, env map[string]string) (builder *Builder, err error) {
-	for i := 0; i < concurrent; i++ {
+func newBuilder(jobChan <-chan db.Build, github *github.API, concurrency int, dir, ciPath string, env map[string]string) (builder *Builder, err error) {
+	for i := 0; i < concurrency; i++ {
 		path := path.Join(dir, strconv.Itoa(i))
 		err = os.MkdirAll(path, 0755)
 		if err != nil {
@@ -77,12 +77,12 @@ func newBuilder(jobChan <-chan db.Build, github *github.API, concurrent int, dir
 	}
 
 	builder = &Builder{
-		jobChan:    jobChan,
-		dir:        dir,
-		ciPath:     ciPath,
-		env:        env,
-		concurrent: concurrent,
-		github:     github,
+		jobChan:     jobChan,
+		dir:         dir,
+		ciPath:      ciPath,
+		env:         env,
+		concurrency: concurrency,
+		github:      github,
 	}
 
 	builder.bootstrapTpl, err = template.New("bootstrap").Parse(bootstrapTpl)
@@ -274,7 +274,7 @@ func (b *Builder) build(build db.Build, path string) error {
 
 // Start all go routines
 func (b *Builder) Start() {
-	for i := 0; i < b.concurrent; i++ {
+	for i := 0; i < b.concurrency; i++ {
 		go b.builderMain(i)
 	}
 }

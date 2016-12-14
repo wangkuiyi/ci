@@ -1,5 +1,0 @@
-build:
-  concurrent: 2
-  env:
-    CI_OS: osx
-    CI_CONCURRENT: 2
