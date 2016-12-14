@@ -53,6 +53,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if setting.Concurrency <= 0 {
+		log.Println(fmt.Sprintf("warning: concurrency set to %d, no build will run", setting.Concurrency))
+	}
 	g := github.New(
 		setting.Github.Endpoint,
 		setting.Github.Description,
@@ -78,6 +81,8 @@ func main() {
 
 	go func() {
 		for _, b := range pending {
+			b.SetStatus(db.BuildQueued)
+			log.Println("queued build:", b.ID, b.Ref, b.CommitSHA)
 			buildChan <- b
 		}
 	}()
@@ -105,6 +110,7 @@ func main() {
 			}
 			b.SetStatus(db.BuildQueued)
 			go func(b db.Build) {
+				log.Println("queued build", b.ID, b.Ref, b.CommitSHA)
 				buildChan <- b
 			}(b)
 		case webhook.PullRequestEvent:
@@ -123,6 +129,7 @@ func main() {
 
 			b.SetStatus(db.BuildQueued)
 			go func(b db.Build) {
+				log.Println("queued build", b.ID, b.Ref, b.CommitSHA)
 				buildChan <- b
 			}(b)
 		}

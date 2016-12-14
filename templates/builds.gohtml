@@ -43,7 +43,7 @@ $(function(){
         $.getJSON("/build_output/", {
             id: bid,
             start: lineId,
-            end: lineId+lineLimit,
+            end: -1,
         }, function(data) {
             for(var i in data.Outputs) {
                 var opt = data.Outputs[i]
