@@ -103,7 +103,6 @@ func newHTTPServer(db *db.DB, github *github.API, eventQueue chan<- interface{},
 	}
 	hook := &webhook.Receiver{Ch: eventQueue}
 	serv.n.Use(negroni.NewRecovery())
-	serv.n.Use(negroni.NewLogger())
 	serv.router.HandleFunc("/ci/", hook.ServeHTTP)
 	serv.router.HandleFunc("/", serv.homeHandler).Methods("Get").Name("home")
 	serv.router.HandleFunc("/status/{sha:[0-9a-f]+}", serv.statusHandler).Methods("Get").Name("status")
