@@ -1,3 +1,8 @@
+# Get code
+```
+go get github.com/wangkuiyi/ci
+cd $GOPATH/github.com/wangkuiyi/ci
+```
 # Build
 ## Build docker image
 ```
