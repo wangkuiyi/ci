@@ -34,6 +34,7 @@ git clone --depth 1 {{.CloneURL}} repo
 cd repo
 git fetch origin {{.Ref}}
 git checkout -qf {{.Head}}
+git submodule update --init
 `
 	executeTpl = `
 set +x
@@ -110,6 +111,7 @@ func (b *Builder) builderMain(id int) {
 		if !ok {
 			break
 		}
+		log.Println("begin build", build.ID, build.Ref, build.CommitSHA)
 		err := b.build(build, path)
 		if err != nil {
 			build.SetStatus(db.BuildError)
