@@ -44,6 +44,7 @@ $(function(){
             id: bid,
             start: lineId,
             end: -1,
+            time: $.now(),
         }, function(data) {
             for(var i in data.Outputs) {
                 var opt = data.Outputs[i]
